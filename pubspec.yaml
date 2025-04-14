@@ -1,0 +1,34 @@
+name: amharic_english_stories
+description: A bilingual Amharic-English storytelling and riddles app powered by Gemini AI
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  google_generative_ai: ^0.4.6
+  flutter_markdown: ^0.6.18
+  shared_preferences: ^2.2.2
+  google_fonts: ^6.1.0
+  flutter_animate: ^4.5.0
+  provider: ^6.1.1
+  flutter_dotenv: ^5.1.0
+  flip_card: ^0.7.0
+  url_launcher: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/animations/
+    - assets/audio/
+    - .env

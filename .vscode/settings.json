@@ -1,0 +1,10 @@
+{
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.jdt.ls.java.home": "C:\\Program Files\\Java\\jdk-21",
+    "java.home": "C:\\Program Files\\Java\\jdk-21",
+    "extensions.ignoreRecommendations": true,
+    "redhat.telemetry.enabled": false,
+    "java.jdt.ls.vmargs": "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true -Xmx2G -Xms100m",
+    "java.import.gradle.enabled": false,
+    "java.import.gradle.wrapper.enabled": false
+} 

@@ -1,0 +1,25 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        jcenter() // Add this as a fallback repository
+    }
+
+    // Fix for Java 21
+    tasks.withType(JavaCompile).configureEach {
+        options.compilerArgs += ["--add-exports", "java.base/sun.nio.ch=ALL-UNNAMED"]
+        options.compilerArgs += ["--add-opens", "java.base/java.lang=ALL-UNNAMED"]
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

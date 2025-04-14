@@ -1,0 +1,1859 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'dart:async'; // Add import for TimeoutException
+import 'dart:convert'; // Add import for JSON parsing
+import '../models/story.dart';
+
+class StoryProvider extends ChangeNotifier {
+  final List<Story> _stories = [];
+  bool _isLoading = false;
+  String _error = '';
+  bool _dataSavingMode = false;
+
+  List<Story> get stories =>
+      _stories..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+  bool get isLoading => _isLoading;
+  String get error => _error;
+  bool get dataSavingMode => _dataSavingMode;
+
+  set dataSavingMode(bool value) {
+    _dataSavingMode = value;
+    notifyListeners();
+  }
+
+  GenerativeModel? _model;
+
+  StoryProvider() {
+    _initializeGemini();
+    _addPredefinedStories();
+  }
+
+  // Add missing initialization of Gemini API
+  void _initializeGemini() async {
+    final apiKey = dotenv.env['GEMINI_API_KEY'];
+
+    // Debug print API key (masked)
+    if (apiKey != null && apiKey.length > 8) {
+      debugPrint(
+          'API Key loaded (showing first 8 chars): ${apiKey.substring(0, 8)}...');
+    } else {
+      debugPrint('API Key issue - using fallback method');
+      // Use a fallback key if somehow the main.dart key didn't register
+      dotenv.env['GEMINI_API_KEY'] = 'AIzaSyDv0foqdQQAmm76e02XlcT0fzGRO8xJDLo';
+    }
+
+    // Get the key again in case we just set the fallback
+    final finalApiKey = dotenv.env['GEMINI_API_KEY'];
+    if (finalApiKey == null || finalApiKey.isEmpty) {
+      _error = 'API key configuration issue, please restart the app';
+      return;
+    }
+
+    // Try creating the model with newest models first
+    final modelNames = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+
+    try {
+      // Use the best model for our use case
+      _model = GenerativeModel(
+        model: 'gemini-1.5-pro',
+        apiKey: finalApiKey,
+        generationConfig: GenerationConfig(
+          temperature: 0.2, // Lower temperature for more accurate content
+          topP: 0.8,
+          topK: 40,
+          maxOutputTokens: 2048, // Allow longer outputs
+        ),
+      );
+      debugPrint('Successfully initialized with model: gemini-1.5-pro');
+      return; // Exit once successful
+    } catch (e) {
+      debugPrint('Error with primary model: ${e.toString()}');
+      // Fall back to older models if needed
+      for (final modelName in modelNames) {
+        try {
+          debugPrint('Trying to initialize with fallback model: $modelName');
+          _model = GenerativeModel(
+            model: modelName,
+            apiKey: finalApiKey,
+          );
+          debugPrint('Successfully initialized with model: $modelName');
+          return; // Exit once successful
+        } catch (e) {
+          debugPrint('Error with model $modelName: ${e.toString()}');
+          // Continue to the next model name if this one fails
+        }
+      }
+    }
+
+    // If we get here, all model attempts failed
+    _error =
+        'Failed to initialize any Gemini model. Please check your API key.';
+  }
+
+  void _addPredefinedStories() {
+    // Famous fairy tales - Animals category
+    _stories.add(Story(
+      titleEn: "The Tortoise and the Hare",
+      titleAm: "ዓቧይና ጥንቸል",
+      contentEn:
+          "Once upon a time, a speedy hare boasted about how fast he could run. Tired of hearing him brag, the slow tortoise challenged him to a race. The hare quickly left the tortoise behind and, confident of winning, took a nap midway. When he awoke, he found that the tortoise, moving slowly but steadily, had already crossed the finish line. This tale teaches that persistence and determination often triumph over natural talent and overconfidence.",
+      contentAm:
+          "አንድ ጊዜ፣ ፈጣን ጥንቸል ስለፍጥነቱ ይኮራ ነበር። በትምክህቱ ደክሞት፣ ዝግተኛው ዓቧይ ወደ ሩጫ ፈታተነው። ጥንቸሉ በፍጥነት ዓቧዩን ጥሎ ሩቅ ሄደ፣ በማሸነፉ በመተማመን በመሃከል ለእንቅልፍ ተኛ። ሲነቃ፣ ዓቧዩ ዝግተኛ ሆኖ ነገር ግን በመጽናት እየተንቀሳቀሰ ጨረስ መስመሩን አልፎ አገኘው። ይህ ተረት የሚያስተምረው ጽናትና ቁርጠኝነት ብዙ ጊዜ ከተፈጥሮ ችሎታና ከራስ ግምት በላይ እንደሚያሸንፉ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 10)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Hyena and Lion fairy tale
+    _stories.add(Story(
+      titleEn: "The Hungry Hyena and the Lion King",
+      titleAm: "የተራበው ጅብና የአንበሶች ንጉሥ",
+      contentEn:
+          "A hungry hyena once schemed to steal food from the mighty lion king. \"Your Majesty,\" said the hyena with a bow, \"I've discovered a field full of fat gazelles just beyond your territory. I'm too small to catch them myself, but you could feast for days!\" The lion, flattered by the hyena's respect, followed him far from the pride. \"It's just over this hill,\" the hyena kept saying, leading the lion farther and farther until the lion was exhausted. When the lion collapsed from tiredness, the hyena snuck back to the pride and tried to steal the lions' fresh kill. But the lionesses had been watching and quickly chased the hyena away. When the lion king returned, he roared, \"Trust is earned, not given. And you, hyena, will never eat with lions again!\" The hyena skulked away, still hungry and now banned from the best hunting grounds. This tale teaches that deception might seem clever, but honesty builds lasting relationships.",
+      contentAm:
+          "አንድ ጊዜ የተራበ ጅብ ከኃይለኛው የአንበሶች ንጉሥ ምግብ ለመሰረቅ ዘዴ አሰበ። \"ጌታዬ፣\" አለ ጅቡ እየሰገደ፣ \"ከግዛትዎ ባሻገር በጣም የሰቡ የሚዳጋ ሎሌዎች ያሉበት ሜዳ አግኝቻለሁ። እኔ ለመያዝ በጣም ትንሽ ነኝ፣ ነገር ግን እርስዎ ለብዙ ቀናት መብላት ይችላሉ!\" አንበሳው፣ በጅቡ አክብሮት በመደሰት፣ ከወንድሞቹ ሩቅ ተከተለው። \"ከዚህ ኮረብታ ባሻገር ነው፣\" በማለት ጅቡ እየመራው የአንበሳውን ሃይል እስከሚዳክር ድረስ እያራቀው ወሰደው። አንበሳው በድካም ሲወድቅ፣ ጅቡ ወደ ቤተሰቦቹ ተመልሶ የአንበሶችን አዲስ ፍርስራሽ ለመሰረቅ ሞከረ። ግን እመበሎቹ እየተከታተሉ ነበርና ጅቡን በፍጥነት አባረሩት። የአንበሶች ንጉሥ ሲመለስ፣ \"እምነት የሚገኘው በመስራት እንጂ በመስጠት አይደለም። እና አንተ፣ ጅብ፣ ከአንበሶች ጋር ምግብ አትበላም!\" በማለት ጮኸ። ጅቡም፣ አሁንም ተርቦ እና ከሚሻለው የአደን ሥፍራ ተከልክሎ ተሸማቀቀ። ይህ ተረት የሚያስተምረው ማታለል አስተዋይ መስሎ ቢታይም እውነተኝነት ግን ሁልጊዜያዊ ግንኙነቶችን እንደሚገነባ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 5)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Clever Goat and Lion fairy tale
+    _stories.add(Story(
+      titleEn: "The Clever Goat and the Foolish Lion",
+      titleAm: "ብልህ ፍየልና ሞኝ አንበሳ",
+      contentEn:
+          "A hungry lion spotted a goat on a high, rocky ledge. \"Hello, friend goat!\" called the lion sweetly. \"Come down here where the grass is greener!\" The clever goat replied, \"Thank you for your concern, but I'm quite comfortable up here.\" \"But there's a wolf coming behind you!\" lied the lion. The goat smiled and said, \"How interesting! We don't have wolves in these mountains.\" Growing frustrated, the lion said, \"I've found a salt lick just down here!\" The goat laughed and replied, \"Dear lion, why are you so concerned with my dinner when you haven't had your own? If you're truly my friend, climb up and join me instead.\" The lion, unable to climb the steep rocks, left hungry and embarrassed. The goat called after him, \"Sometimes the best meal is the one you don't have to run from!\" This tale teaches that quick thinking can overcome brute strength, and it's wise to recognize deception.",
+      contentAm:
+          "አንድ የተራበ አንበሳ በከፍተኛ፣ ድንጋያማ ዳር ላይ ፍየል አየ። \"ሰላም፣ ጓደኛዬ ፍየል!\" ብሎ አንበሳው በጣፋጭ ተጣራ። \"ሣር አረንጓዴ ወደሆነበት እዚህ ውረድ!\" ብልሃተኛው ፍየል መለሰ፣ \"ስለጭንቀትህ አመሰግናለሁ፣ ግን እዚህ ላይ በጣም ምቹ ነኝ።\" \"ግን ከኋላህ ተኩላ እየመጣ ነው!\" ብሎ አንበሳው ዋሸ። ፍየሉ ሳቀና \"እንዴት አስደሳች ነገር ነው! በእነዚህ ተራሮች ላይ ተኩላዎች የሉንም\" አለ። እየተበሳጨ፣ አንበሳው \"እዚህ በታች ጨው አግኝቻለሁ!\" አለ። ፍየሉ ሳቀና መለሰ፣ \"ውድ አንበሳ፣ አንተ የራስህን ምግብ ሳትበላ ስለእኔ እራት ለምን እንደዚህ ትጨነቃለህ? እውነተኛ ጓደኛዬ ከሆንክ፣ እዚህ ወጥተህ ከእኔ ጋር ተቀላቀል።\" አንበሳው፣ ሹል ድንጋዮችን መውጣት ባለመቻሉ፣ ተርቦና ተሳፍሮ ሄደ። ፍየሉም \"አንዳንድ ጊዜ ምርጥ ምግብ ከእሱ መሮጥ የማያስፈልግህ ነው!\" ብሎ ጮኸበት። ይህ ተረት የሚያስተምረው ፈጣን አስተሳሰብ ጠንካራ ሃይልን ማሸነፍ እንደሚችል፣ እና ማታለልን መለየት ጥበብ መሆኑን ነው።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 7)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Ape and Lion's Challenge fairy tale
+    _stories.add(Story(
+      titleEn: "The Ape's Challenge to the Lion",
+      titleAm: "የዝንጀሮው ለአንበሳ የቀረበ ፈተና",
+      contentEn:
+          "The animals of the jungle held a contest to decide who was the most clever. The lion, as king, declared himself the judge. \"I will ask a question,\" he announced, \"and whoever answers correctly will win a week's supply of the finest fruits.\" All the animals gathered excitedly. \"What animal is the strongest and wisest in the jungle?\" asked the lion with a smug smile. The elephant trumpeted, \"You are, Your Majesty!\" The zebra bowed, \"The lion, of course!\" All the animals gave similar answers, except for the ape, who scratched his head thoughtfully. \"Well,\" said the ape, \"the strongest animal might be the elephant who can uproot trees. The wisest might be the owl who sees in darkness. The fastest is the cheetah who catches the swiftest prey.\" The lion growled, \"You did not answer my question!\" The ape replied calmly, \"I answered the true question of who has which quality. If you wanted praise instead of truth, perhaps that was not a fair contest question.\" The other animals gasped at the ape's boldness. The lion stared at the ape for a long moment, then surprised everyone by laughing. \"The ape wins the contest,\" declared the lion, \"for he alone had the courage to speak honestly to a king.\" From that day on, the lion consulted the ape on important jungle matters, and the animals learned that true wisdom includes both knowledge and courage.",
+      contentAm:
+          "የጫካው እንስሶች ማን እጅግ ብልህ እንደሆነ ለመወሰን ውድድር አዘጋጁ። አንድ ጥያቄ እጠይቃለሁ፣\" ብሎ አበሰረ፣ \"ትክክል የሚመልሰው ለአንድ ሳምንት የሚበቃ ምርጥ ፍራፍሬዎችን ያገኛል።\" እንስሶቹ ሁሉ በጉጉት ተሰበሰቡ። \"በዚህ ጫካ ውስጥ ምን አይነት እንስሳ ነው ጠንካራውና ብልሃተኛው?\" ብሎ አንበሳው በትዕቢት ሳቅ አለ። ዝሆኑ \"እርስዎ ነዎት፣ ጌታዬ!\" ሲል ጯሀ። ዔብራ ሰግዶ \"አንበሳው፣ በእርግጥ!\" አለ። ሁሉም እንስሶች ተመሳሳይ መልስ ሰጡ፣ ከዝንጀሮው በስተቀር፣ ራሱን በአስተዋይነት ያሻሻ ነበር። \"እንዲህ ነው፣\" አለ ዝንጀሮው፣ \"ጠንካራው እንስሳ ዛፎችን ሊነቅል የሚችለው ዝሆን ሊሆን ይችላል። ብልሃተኛው በጨለማ የሚያይ ቡፍ ሊሆን ይችላል። ፈጣኑ ደግሞ ፈጣን ሰለባን የሚይዘው ቀድዶ ነው።\" አንበሳው አገሰሰ፣ \"ጥያቄዬን አልመለስክም!\" ዝንጀሮው በሰከነ ሁኔታ መለሰ፣ \"ማን ምን ባህርይ እንዳለው ስለሚጠይቀው እውነተኛ ጥያቄ መልስ ሰጥቻለሁ። ከእውነት ይልቅ ሞገስን ከፈለግክ፣ ምናልባት ያ ፍትሃዊ የውድድር ጥያቄ አልነበረም።\" ሌሎቹ እንስሶች በዝንጀሮው ድፍረት ለቅሶ አቆሙ። አንበሳው ለረጅም ጊዜ ዝንጀሮውን ተመለከተው፣ ከዚያም ሁሉንም በማስገረም ሳቀ። \"ዝንጀሮው ውድድሩን አሸንፏል፣\" ብሎ አበሰረ አንበሳው፣ \"እሱ ብቻ ነው ለንጉሥ በእውነት ለመናገር ድፍረት የነበረው።\" ከዚያች ቀን ጀምሮ፣ አንበሳው ዝንጀሮውን በጫካ ጉዳዮች ላይ ይጠይቀው ነበር፣ እንስሶቹም እውነተኛ ጥበብ እውቀትንና ድፍረትን አንድ ላይ እንደሚይዝ ተማሩ።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 6)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Fish Out of Water fairy tale
+    _stories.add(Story(
+      titleEn: "The Fish Who Wanted to Fly",
+      titleAm: "መብረር የፈለገው ዓሣ",
+      contentEn:
+          "In a crystal-clear lake lived a small, brightly colored fish who watched birds soaring overhead every day. \"How wonderful it must be to fly!\" the fish would sigh. A friendly heron who often visited the lake noticed the sad fish. \"Why so glum?\" asked the heron. \"I wish I could fly like you,\" replied the fish. \"The water is so limiting.\" The heron tilted his head. \"But can you show me the underwater caves?\" The fish nodded. \"Can you sleep nestled in soft lake plants?\" Another nod. \"Can you dart through water faster than I can blink?\" The fish demonstrated proudly. The heron smiled. \"You see, I cannot do any of those things. Every time I catch a fish, I must return to land. I can only visit your world briefly.\" The fish thought about this. Later, a careless kingfisher scooped up the fish and accidentally dropped him on a lily pad. Gasping for breath, the fish realized how beautiful his water world was, and how perfectly suited he was for it. A friendly frog helped flip him back into the lake, where he swam happily, no longer envying the birds but appreciating his own special abilities. Sometimes we spend so much time wishing for what others have that we fail to appreciate our own unique gifts.",
+      contentAm:
+          "በጣም ንጹህ ሐይቅ ውስጥ አንድ ትንሽ፣ ቀለም የሞላው ዓሣ በየቀኑ ወፎች ከሰማይ በላይ ሲበሩ ይመለከት ነበር። \"እንዴት አስደናቂ ነገር ነው መብረር!\" ብሎ ዓሣው ይቆዝም ነበር። ሐይቁን በየጊዜው የሚጎበኝ ወዳጅ ሰጋን ኩሩሩ የተከፋውን ዓሣ አስተዋለ። \"ለምን እንደዚህ አዝነሃል?\" ብሎ ጠየቀ ሰጋን ኩሩሩ። \"እንደ አንተ መብረር እችል ዘንድ እመኝ ነበር፣\" ብሎ መለሰ ዓሣው። \"ውሃው በጣም ውስን ነው።\" ሰጋን ኩሩሩ ራሱን አዘነበለ። \"ግን የውሃ ውስጥ ዋሻዎችን ልታሳየኝ ትችላለህ?\" ዓሣው ጭንቅላቱን አነቀነቀ። \"በለሰላሳ የሐይቅ ተክሎች መካከል መተኛት ትችላለህ?\" ሌላ ነቀነቃ። \"ዓይኔን ከማያሟሙትበት ፍጥነት በላይ በውሃ ውስጥ መንሽራተት ትችላለህ?\" ዓሣው በኩራት አሳየው። ሰጋን ኩሩሩ ፈገግ አለ። \"እነዚህን ነገሮች አንዱንም ማድረግ እንደማልችል ታያለህ። ዓሣ በያዝኩ ቁጥር ወደ ምድር መመለስ አለብኝ። ዓለምህን በአጭር ጊዜ ብቻ ነው የምጎበኘው።\" ዓሣው ስለዚህ አሰበ። በኋላ፣ ጉዳት የሌለው ነባሪት ሰጋን ዓሣውን ቆልቶ በድንገት በዛንባቅ ላይ ጣለው። ለአየር እየተቸገረ ዓሣው የውሃ ዓለሙ እንዴት ውብ እንደሆነ፣ እና እሱም እንዴት ለዚያ ፍጹም ተስማሚ እንደሆነ ተገነዘበ። ጓደኛ እንቁራሪት ዓሣውን ወደ ሐይቁ እንዲመለስ በመገልበጥ ረዳው፣ እዚያም ጉዞውን በደስታ ዋኘ፣ ከዚያ በኋላ ወፎችን ሳይቀና ነገር ግን የራሱን ልዩ ችሎታዎች እያደነቀ። አንዳንድ ጊዜ ሌሎች ባላቸው ነገሮች ለመመኘት ብዙ ጊዜ እናጠፋለን የራሳችንን ልዩ ስጦታዎች ሳናደንቅ።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 4)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Lion and the Mouse",
+      titleAm: "አንበሳና አይጥ",
+      contentEn:
+          "A mighty lion once caught a tiny mouse. As the lion was about to eat him, the mouse begged, \"Please spare me, and someday I'll help you.\" The lion laughed at the idea that such a small creature could ever help him but let the mouse go. Later, hunters trapped the lion in a net. The mouse, hearing the lion's roars, came and gnawed through the ropes, freeing him. \"You laughed when I said I would repay you,\" said the mouse. \"Now you see that even a little mouse can help a mighty lion.\" This teaches us that kindness is never wasted, and even the smallest friends can be valuable allies.",
+      contentAm:
+          "አንድ ጊዜ ኃይለኛ አንበሳ ትንሽ አይጥ ያዘ። አንበሳው ሊበላው ሲል፣ አይጡ \"እባክህ ተወኝ፣ አንድ ቀን እረዳሃለሁ\" ብሎ ለመነው። አንበሳው እንደዚህ ያለ ትንሽ ፍጡር ሊረዳው እንደሚችል ሲገረም ሳቀ ነገር ግን አይጡን ለቀቀው። በኋላ፣ አዳኞች አንበሳውን በረቀቀ መረብ ውስጥ ያዙት። አይጡም የአንበሳውን ጩኸት ሰምቶ መጣና ገመዶቹን ቆርጦ አንበሳውን ነፃ አወጣው። \"ልመልስልህ እችላለሁ ባልኩ ጊዜ ሳቅህብኝ፣\" አለው አይጡ። \"አሁን እንደምታይ ትንሽ አይጥም ቢሆን ኃይለኛውን አንበሳ ሊረዳው ይችላል።\" ይህ የሚያስተምረን ደግነትና የውስጥ ውበት ከጭካኔ በላይ እንደሚያሸንፍ ያሳያል።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 45)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - Culture category
+    _stories.add(Story(
+      titleEn: "Cinderella",
+      titleAm: "ሲንደሬላ",
+      contentEn:
+          "Cinderella lived with her cruel stepmother and stepsisters who made her work as a servant. When the king held a ball, her fairy godmother appeared and transformed her rags into a beautiful gown and gave her glass slippers, turning a pumpkin into a carriage. At the ball, the prince fell in love with her, but at midnight everything returned to normal, and she fled, leaving behind one glass slipper. The prince searched the kingdom for the girl whose foot fit the slipper. When it fit Cinderella perfectly, he knew she was his true love. They married and lived happily ever after, showing that kindness and inner beauty triumph over cruelty.",
+      contentAm:
+          "ሲንደሬላ ከጨካኝ እንጀራ እናቷና እህቶቿ ጋር ትኖር ነበር፤ እነሱም እንደ አገልጋይ እንድትሰራ አደረጓት። ንጉሱ ሲያደርግ በዓል ላይ፣ የዕድል እናቷ ተገለጠችና ጨርቆችዋን ወደ ውብ ቀሚስ ቀየረች እንዲሁም የብርጭቆ ጫማዎችን ሰጠቻት፣ ዱባን ወደ ረዥም ተሽከርካሪ ቀይራ። በዓሉ ላይ፣ ልዑል ተወላት፣ ነገር ግን በእኩለ ሌሊት ሁሉም ነገር ወደ ነበረበት ተመለሰ፣ ስለዚህ እሷም አንድ የብርጭቆ ጫማ ትታ ኮበለለች። ልዑሉም ጫማው የሚስማማት ልጃገረድ ለማግኘት መንግስቱን ሁሉ ፈለገ። ጫማው ሲንደሬላን በትክክል ሲስማማት፣ እሷ እውነተኛ ፍቅሩ እንደሆነች ተገነዘበ። ተጋቡና በደስታ ኖሩ፣ ይህም ደግነትና የውስጥ ውበት ከጭካኔ በላይ እንደሚያሸንፍ ያሳያል።",
+      type: StoryType.fairyTale,
+      topic: "Magic",
+      dateCreated: DateTime.now().subtract(const Duration(days: 25)),
+      category: StoryCategory.culture,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "Beauty and the Beast",
+      titleAm: "ውበትና አውሬው",
+      contentEn:
+          "A merchant picked a rose for his daughter Beauty from a beast's garden. The angry beast demanded the merchant's life in return, but allowed him to go home to say goodbye. Beauty insisted on taking her father's place. At the beast's castle, she discovered he was kind despite his appearance. Every night, the beast asked Beauty to marry him, and she refused. When Beauty learned her father was ill, the beast let her visit him. After staying longer than promised, she returned to find the beast dying of a broken heart. Her tears of love fell on him, breaking the spell, and he transformed into a handsome prince. They lived happily ever after, showing that true beauty lies within.",
+      contentAm:
+          "አንድ ነጋዴ ለልጁ ውበት ከአውሬው ጓሮ ውስጥ አበባ ቆረጠ። የተናደደው አውሬ በመቀጣት ነጋዴውን ሕይወት እንዲያጣ ጠየቀ, ነገር ግን ወደ ቤት ሄዶ ለመሰናበት ፈቀደለት። ውበት የአባቷን ቦታ ለመውሰድ አስቀድማ አስጠየቀች። በአውሬው ግንብ ውስጥ ሆና፣ ከመልኩ ባሻገር ደግ እንደሆነ ተመለከተች። በየምሽቱ አውሬው ውበትን እንድታገባው ይጠይቃት ነበር፣ እሷም ትከለክለው ነበር። ውበት አባቷ ታሞ እንደሆነ ስትረዳ፣ አውሬው ሄዳ እንድትጠይቀው ፈቀደላት። ከቃሏ በላይ ከቆየች በኋላ፣ ተመልሳ አውሬውን ልቡ ተሰብሮ ሲሞት አገኘችው። የፍቅሯ እንባዎች በእሱ ላይ ወድቀው፣ ድግምት ሰባሩ፣ አውሬውም ወደ ውብ ልዑል ተቀየረ። ለዘላለም በደስታ ኖሩ፣ ይህም እውነተኛ ውበት በውስጡ እንደሚገኝ ያሳያል።",
+      type: StoryType.fairyTale,
+      topic: "Magic",
+      dateCreated: DateTime.now().subtract(const Duration(days: 30)),
+      category: StoryCategory.culture,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - Nature category
+    _stories.add(Story(
+      titleEn: "Jack and the Beanstalk",
+      titleAm: "ጃክና የባቄላ ዛፍ",
+      contentEn:
+          "Jack traded his cow for magic beans, which his mother angrily threw outside. Overnight, the beans grew into a giant beanstalk reaching the clouds. Jack climbed it and found a castle inhabited by a giant. While the giant slept, Jack stole a bag of gold coins. On later visits, he took a goose that laid golden eggs and a magical singing harp. The angry giant chased Jack down the beanstalk, but Jack cut it down, causing the giant to fall to his death. Jack and his mother lived comfortably with their newfound wealth. This tale teaches about taking risks, seizing opportunities, and sometimes, the need to face one's fears.",
+      contentAm:
+          "ጃክ ላሟን በድንቅ ባቄላዎች ለወጠ፣ እናቱም በንዴት ወደ ውጭ ጣለቻቸው። በሌሊቱ፣ ባቄላዎቹ ወደ ደመናዎች ድረስ የሚደርስ ግዙፍ ዛፍ ሆነው አደጉ። ጃክ ወጥቶ በደመናዎች ላይ ያለ ግንብ አገኘ፤ በዚህም አንድ ዘላን ይኖር ነበር። ዘላኑ እንቅልፍ ላይ እያለ፣ ጃክ ከረጢት የሙሉ የወርቅ ሳንቲሞችን ሰረቀ። በሌላ ጊዜም፣ የወርቅ እንቁላል የምታጠምድ ዝይ እና ድንቅ የሙዚቃ መሳሪያ ሃርፕ ወሰደ። የተቆጣው ዘላን ጃክን በዛፉ ላይ አሳደደው፣ ነገር ግን ጃክ ዛፉን ቆረጠው፣ ዘላኑም ወድቆ ሞተ። ጃክና እናቱ በአዲስ ሃብታቸው በምቾት ኖሩ። ይህ ተረት ስለ ስጋቶች መውሰድ፣ አጋጣሚዎችን መጠቀም እና አንዳንድ ጊዜ ፍርሃቶቻችንን መጋፈጥ እንዳለብን ነው።",
+      type: StoryType.fairyTale,
+      topic: "Magic",
+      dateCreated: DateTime.now().subtract(const Duration(days: 15)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "Hansel and Gretel",
+      titleAm: "ሃንሴልና ግሬቴል",
+      contentEn:
+          "During a famine, a woodcutter's wife convinced him to abandon his children, Hansel and Gretel, in the forest. Overhearing this plan, Hansel collected pebbles and left a trail to follow home. When abandoned again, they used breadcrumbs, but birds ate them. Lost in the forest, they found a house made of gingerbread and sweets. An old witch lived there who trapped children to eat them. She imprisoned Hansel, planning to fatten him up, while Gretel worked as a servant. When the witch prepared the oven to cook Hansel, clever Gretel pushed her into it instead. The children found the witch's treasure, followed a white bird home, and reunited with their remorseful father. Their stepmother had died, and they lived happily together, having learned to rely on their wits and each other to overcome evil.",
+      contentAm:
+          "በአንድ ረሃብ ወቅት፣ የአንድ እንጨት ቆራጭ ሚስት ልጆቻቸውን ሃንሴልና ግሬቴልን በጫካ ውስጥ እንዲተዉ አሳመነችው። ይህንን እቅድ ሲሰሙ፣ ሃንሴል ጠጠሮችን ሰብስቦ ወደ ቤት መንገድ አስቀመጠ። ሁለተኛ ሲተዉዋቸው፣ የዳቦ ፍርፋሪዎችን ተጠቀሙ፣ ነገር ግን ወፎች በሉዋቸው። በጫካው ውስጥ ጠፍተው፣ የዳቦና ጣፋጭ ነገሮች የተሰራ ቤት አገኙ። አንድ አሮጊት አስማተኛ ልጆችን ለመብላት የምታጠምድ ትኖር ነበር፣ ሃንሴልን አስራ በማስወፈር ግሬቴልን እንደ አገልጋይ አሰራች። አስማተኛዋ ሃንሴልን ለመጋገር ምድጃ ስታዘጋጅ፣ ብልህዋ ግሬቴል ወደ ምድጃው እሷን ገፋች። ልጆቹም የአስማተኛዋን ሀብት አግኝተው፣ አንድ ነጭ ወፍን ተከትለው ወደ ቤት ደረሱ፣ ከተጸጸተው አባታቸው ጋርም ተዋሃዱ። እንጀራ እናታቸው ምትታ ነበር፣ እነሱም ጭራቅን ለማሸነፍ ብልሃትና አንድ ላይ መተጋገዝ እንዳለባቸው ተምረው በደስታ አብረው ኖሩ።",
+      type: StoryType.fairyTale,
+      topic: "Survival",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - History category
+    _stories.add(Story(
+      titleEn: "The Emperor's New Clothes",
+      titleAm: "የንጉሱ አዲስ ልብሶች",
+      contentEn:
+          "A vain emperor who cared only about his appearance was tricked by two weavers who claimed to make clothes that were invisible to anyone who was unfit for their position. The emperor and his court pretended to see the clothes, fearing they would be considered foolish. Only a child had the courage to point out that the emperor was wearing nothing at all. This story teaches us about the importance of speaking truth to power and the dangers of vanity.",
+      contentAm:
+          "በመልክ ብቻ የሚጨክን ንጉሥ በሁለት ጥፋት አዛዦች ተተንኮል ነበረው። እነሱ የሚያድር ልብሶች የሚፈጥሩ እንደሆኑ አስመስለው፣ እነዚህ ልብሶች ለሥልጣናቸው የማይሆኑ ሰዎች የማይታዩ እንደሆኑ አሉ። ንጉሥ እና ባለሥልጣናቱ ደደብ እንደሚባሉ ፍርሃት ልብሶቹን የሚያዩ እንደሆኑ አድርገው አስመስሉ። ብቸኛው ልጅ ብቻ ንጉሡ ምንም ልብስ እንዳለበት የማይታይ እንደሆነ የሚናገር ድፍረት ነበረው። ይህ ታሪክ እውነትን ለሥልጣን መናገር እና የክብር ፍርሃት አደጋ እንደሚረዳ አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 30)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Legend of Lalibela",
+      titleAm: "የላሊበላ ተልዕኮ",
+      contentEn:
+          "In the heart of Ethiopia, there was a prince named Lalibela who had a vision of building magnificent churches carved from solid rock. Guided by divine inspiration and helped by angels, he created eleven churches that still stand today. Each church tells a story of faith, determination, and the power of belief. The churches became a symbol of Ethiopian Christianity and a testament to human ingenuity and devotion.",
+      contentAm:
+          "በኢትዮጵያ ልብ፣ ከጠንካራ ድንጋይ የተፈጠሩ ድንቅ ቤተ ክርስቲያናት የሚገነቡ ላሊበላ የተባለ ንጉሥ ነበረ። በእግዚአብሄር መመሪያ እና በመላእክት እርዳታ አስራት ቤተ ክርስቲያናት ፈጠረ፣ እስካሁን ድረስ የሚቆሙ ናቸው። እያንዳንዱ ቤተ ክርስቲያን የእምነት፣ የመወሰን እና የማመን ኃይል ታሪክ ይናገራል። ቤተ ክርስቲያናቱ የኢትዮጵያ ክርስትና ምልክት እና የሰው ተስፋ እና የተዋህዶ ማስረጃ ሆነው ቆዩ።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 28)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise King and the Golden Palace",
+      titleAm: "ጥበበ ንጉሥ እና የወርቅ ቤተ መንግሥት",
+      contentEn:
+          "There was once a wise king who built a magnificent golden palace. Instead of keeping it for himself, he opened it to his people, using it as a place for learning and sharing. The palace became a center of wisdom where people from all walks of life could gather to share knowledge and ideas. The king's generosity and wisdom made his kingdom prosperous and his people happy.",
+      contentAm:
+          "አንድ ጥበበ ንጉሥ ድንቅ የወርቅ ቤተ መንግሥት ነበረው። ለራሱ ከመጠበቅ ይልቅ፣ ለሕዝቡ ከመክፈት ይልቅ፣ እንደ መማሪያ እና የመጋራት ቦታ አድርጎት ተጠቀመ። ቤተ መንግሥቱ የጥበብ መሃል ሆነ፣ ሁሉም የሕይወት ዘርፍ የሆኑ ሰዎች እውቀት እና ሀሳቦች እንዲጋራጡ የሚገኙበት ቦታ ሆነ። የንጉሡ ተዋሕዶ እና ጥበብ መንግሥቱን ተስፋ አድርገው እና ሕዝቡን ደስ አድርገው አደረጉ።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 25)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Clever Judge and the Three Brothers",
+      titleAm: "ጥበበ ዳኛ እና ሦስቱ ወንድሞች",
+      contentEn:
+          "Three brothers inherited a piece of land from their father. They couldn't agree on how to divide it, so they went to a wise judge. The judge gave them a riddle: 'How can you divide the land so that each brother gets an equal share, and the land remains whole?' The brothers thought and thought, until the youngest brother had an idea. They could farm the land together and share the harvest equally. The judge praised their solution, showing that working together is often better than dividing things apart.",
+      contentAm:
+          "ሦስት ወንድሞች ከአባታቸው አንድ የመሬት ቦታ ወረሱ። እንዴት እንደሚካፈሉት ላይ መስማማት አልቻሉም፣ ስለዚህ ወደ ጥበበ ዳኛ ሄዱ። ዳኛው እንዲህ የሚል እንቅፋት ሰጣቸው፣ 'መሬቱን እንዴት እንደሚካፈሉት እያንዳንዱ ወንድም እኩል ድርሻ እንደሚያገኝ እና መሬቱ ሙሉ እንደሚቆይ?' ወንድሞቹ እስኪያውቁ ድረስ አሰቡ፣ በመጨረሻም ታናሹ ወንድም ሀሳብ አመጣ። መሬቱን በጋራ እንዲያርሱ እና ምርቱን በእኩል እንዲጋራጡ ተስማሙ። ዳኛው መፍትሄያቸውን አመስግኗል፣ አንድ ላይ መስራት ነገሮችን መክፈል ከመክፈል ይልቅ ብዙ ጊዜ የተሻለ እንደሆነ አሳየ።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 22)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Pied Piper of Hamelin",
+      titleAm: "የሃሜሊን የቀለም አዛዥ",
+      contentEn:
+          "In the town of Hamelin, there was a terrible rat problem. A mysterious piper appeared and offered to rid the town of rats in exchange for payment. The piper played his magical flute, and all the rats followed him out of town. When the town refused to pay him, he played his flute again, and this time all the children followed him out of town. This story teaches us about the importance of keeping promises and the consequences of breaking them.",
+      contentAm:
+          "በሃሜሊን ከተማ፣ በጣም የአንበጣ ችግር ነበረ። በሚስጥር የተለየ አዛዥ ተገልብጦ አንበጦችን ከከተማው ለማውጣት ክፍያ ተስፋ አደረገ። አዛዥው ድንቅ አውራጃውን አጫወተ፣ እና ሁሉም አንበጦች ከከተማው ወጡ። ከተማው ክፍያውን መስጠት በመቀዛቀዝ፣ አዛዥው አውራጃውን እንደገና አጫወተ፣ እና በዚህ ጊዜ ሁሉም ልጆች ከከተማው ወጡ። ይህ ታሪክ ተስፋ መጠበቅ እና የተስፋ መስረቅ ውጤቶች እንደሚረዳ አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 20)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Great Wall of China",
+      titleAm: "የቻይና ታላቅ ግድግዳ",
+      contentEn:
+          "The Great Wall of China was built over many centuries to protect the Chinese empire from invaders. It's said that the wall is so long it could wrap around the Earth several times. The wall was built by millions of workers, including soldiers, peasants, and prisoners. While it's a symbol of human achievement, it also tells the story of the sacrifices made by those who built it. The wall stands as a reminder that great achievements often come at great cost.",
+      contentAm:
+          "የቻይና ታላቅ ግድግዳ በብዙ መቶ ዓመታት ውስጥ የቻይና መንግሥት ከወራሪዎች ለመጠበቅ ተገንብቷል። ግድግዳው በጣም ረጅም እንደሆነ እና በምድር ዙሪያ ብዙ ጊዜ እንደሚያዞር ይባላል። ግድግዳው በተለያዩ ሰራተኞች ተገንብቷል፣ እንደ ወታደሮች፣ አገር አባቶች እና እስረኞች ያሉ ብዙ ሰዎች ተሳትፈዋል። የሰው ስራ ምልክት ቢሆንም፣ የገነባቸው የተደረጉ መስዋዕትነቶች ታሪክ እንዲሁ ይናገራል። ግድግዳው ታላቅ ስራዎች ብዙ ጊዜ ታላቅ ዋጋ እንደሚያስከፍሉ አስታውሻ አድርገን ቆሟል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 18)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Library of Alexandria",
+      titleAm: "የእስክንድርያ ቤተ መጻሕፍት",
+      contentEn:
+          "The Library of Alexandria was one of the largest and most significant libraries of the ancient world. It housed hundreds of thousands of scrolls containing knowledge from many civilizations. Scholars from all over the world came to study there. The library was a symbol of human thirst for knowledge and the importance of preserving information. While the library was eventually destroyed, its spirit lives on in modern libraries and the internet, reminding us of the value of sharing knowledge.",
+      contentAm:
+          "የእስክንድርያ ቤተ መጻሕፍት በጥንታዊ ዓለም ከታላላቅ እና ከተስፋ ያለው ቤተ መጻሕፍት አንዱ ነበር። በብዙ ባህሎች ውስጥ ያለው እውቀት የያዘ በመቶ ሺዎች ጥቅል ይዟል። ከዓለም ዙሪያ የመጡ ምሁራን በዚያ እውቀት እንዲያጥኑ ይመጡ ነበር። ቤተ መጻሕፍቱ የሰው ለእውቀት ያለው ጥማት እና መረጃ መጠበቅ አስፈላጊነት ምልክት ነበር። ቤተ መጻሕፍቱ በመጨረሻ ቢጠፋም፣ መንፈሱ በዘመናዊ ቤተ መጻሕፍት እና በበይነመረጃ ውስጥ ተስፋ አድርገው ቆይተዋል፣ እውቀት መጋራት ዋጋ እንደሚረዳ አስታውሻ አድርገን።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 15)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Silk Road",
+      titleAm: "የሐር መንገድ",
+      contentEn:
+          "The Silk Road was an ancient network of trade routes connecting China to the Mediterranean. It wasn't just a road for trading silk, but a path for sharing ideas, cultures, and technologies. Merchants, scholars, and travelers from different civilizations met along this route, creating a rich exchange of knowledge and traditions. The Silk Road shows us how connecting different parts of the world can lead to great cultural and technological advances.",
+      contentAm:
+          "የሐር መንገድ ቻይናን ከመስከረም ባሕር ጋር የሚያገናኝ ጥንታዊ የንግድ መንገዶች አውታረ መረጃ ነበር። ሐር ብቻ ሳይሆን፣ ሀሳቦች፣ ባህሎች እና ቴክኖሎጂዎች የሚጋራጡት መንገድ ነበር። ነጋዴዎች፣ ምሁራን እና ተጓዦች ከተለያዩ ባህሎች በዚህ መንገድ ላይ ተገናኝተው ባህላዊ እና ቴክኖሎጂያዊ እውቀት የተስፋ ልዩ መልዕክት ፈጠሩ። የሐር መንገድ የዓለም የተለያዩ ክፍሎች መገናኛ ታላቅ ባህላዊ እና ቴክኖሎጂያዊ እድገት እንደሚያስከትል አሳየናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The First Emperor",
+      titleAm: "የመጀመሪያው ንጉሥ",
+      contentEn:
+          "Qin Shi Huang was the first emperor to unite China. He standardized writing, currency, and measurements across his empire. He also built the famous Terracotta Army to protect him in the afterlife. While his achievements were great, his rule was also marked by strict laws and forced labor. His story teaches us about the balance between progress and human rights, and how power can be used for both good and bad.",
+      contentAm:
+          "ቺን ሺ ሁዋንግ ቻይናን የመጀመሪያው ንጉሥ ነበር። በመንግሥቱ ውስጥ መፃፍት፣ ገንዘብ እና መለኪያዎች እንዲተስማሙ አድርገው። በተጨማሪም፣ በሞት በኋላ እንዲጠብቅው የተሰራ የተራ የተሰራ የጦር ኃይል አገነባ። ስራዎቹ ታላላቅ ቢሆኑም፣ መንግሥቱ በጥብቅ ሕጎች እና በግድ የተደረገ የጉልበት ሥራ ተለይቶ ይታወቅ ነበር። ታሪኩ በእድገት እና በሰው መብቶች መካከል ያለው ሚዛን እና ኃይል ለመልካም እና ለክፉ እንዴት እንደሚያገለግል አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 10)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Renaissance",
+      titleAm: "የመልሶ መፈጠር",
+      contentEn:
+          "The Renaissance was a period of great cultural and intellectual change in Europe. It was a time when people rediscovered ancient knowledge and created new ideas in art, science, and literature. Famous figures like Leonardo da Vinci and Michelangelo showed that human creativity and curiosity could achieve amazing things. The Renaissance teaches us about the power of learning from the past while creating new possibilities for the future.",
+      contentAm:
+          "መልሶ መፈጠር በአውሮፓ ውስጥ ታላቅ የባህል እና የአእምሮ ለውጥ የነበረ ወቅት ነበር። ሰዎች ጥንታዊ እውቀት እንደገና የሚያገኙ እና በኪነት፣ በሳይንስ እና በፍጥረት ውስጥ አዲስ ሀሳቦች የሚፈጥሩ ወቅት ነበር። እንደ ሌዮናርዶ ዳ ቪንቺ እና ሚኬላንጄሎ ያሉ ታዋቂ ሰዎች የሰው ፍጥረት እና ጥያቄ ድንቅ ነገሮችን እንደሚያስመጣ አሳዩ። መልሶ መፈጠር ከቀድሞው የመማር እና ለወደፊቱ አዲስ ዕድሎች የመፍጠር ኃይል እንደሚረዳ አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 8)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - Wisdom category
+    _stories.add(Story(
+      titleEn: "The Wise Old Owl",
+      titleAm: "የጥበበኛው አሮጌ ጉጉት",
+      contentEn:
+          "In a forest, there lived a wise old owl who was known for giving good advice. Animals would come to him with their problems, and he would listen carefully before giving his wisdom. One day, a young rabbit came to him, worried about making friends. The owl told him that true friendship comes from being kind and listening to others. The rabbit followed this advice and soon had many friends.",
+      contentAm:
+          "በጫካ ውስጥ፣ ጥሩ ምክር በመስጠት የታወቀ ጥበበኛ አሮጌ ጉጉት ይኖር ነበር። እንስሳት ችግሮቻቸውን ይያዙት ነበር፣ እና ጥበቡን ከመስጠቱ በፊት በጥንቃቄ ይዳምጥ ነበር። አንድ ቀን፣ አንድ ታናሽ ጥንቸል ጓደኞች መፍጠር በተጨናነቀ መጣ። ጉጉቱ እውነተኛ ጓደኝነት ከደጋፊ መሆን እና ሌሎች ሰዎችን መስማት እንደሚመጣ ነግሮት። ጥንቸሉ ይህን ምክር ተከተለ፣ እና በቅርብ ጊዜ ብዙ ጓደኞች አገኘ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 30)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Ant",
+      titleAm: "የጥበበኛው ጨንፋጣ",
+      contentEn:
+          "A wise ant lived in a colony where everyone worked hard to prepare for winter. One day, a grasshopper who had spent the summer playing came to the ant for help. The ant shared some of his food but also taught the grasshopper the importance of planning ahead. The grasshopper learned that wisdom means thinking about the future while enjoying the present.",
+      contentAm:
+          "አንድ ጥበበኛ ጨንፋጣ ሁሉም ሰው ለክረምት እንዲያዘጋጅ በጣም የሚሰራ በኮሎኒ ውስጥ ይኖር ነበር። አንድ ቀን፣ ክረምቱን በመጫወት የሳምንቱን የተለያዩ እንስሳት ይጠቀማሉ። አንድ ቀን፣ አንድ ጨንፋጣ እና አንድ አንበሳ አንድ ላይ የመግጠም ውድድር እንዲያደርጉ ወሰኑ። ጨንፋጣው በጣም ፈጣን ነበር፣ ነገር ግን አንበሳው በጣም ጠንካራ ነበር። ጨንፋጣው በጥበብ እና በፍጥነት ውድድሩን አሸነፈ፣ እና አንበሳው ጥንካሬ ብቻ በቂ እንዳልሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 28)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Turtle",
+      titleAm: "የጥበበኛው እስፌ",
+      contentEn:
+          "A wise turtle lived by a river and was known for his patience and wisdom. One day, a young rabbit came to him, frustrated because he couldn't learn to swim. The turtle taught the rabbit that learning takes time and patience, and that everyone learns at their own pace. The rabbit learned that wisdom often comes from being patient and persistent.",
+      contentAm:
+          "አንድ ጥበበኛ እስፌ በወንዝ አጠገብ ይኖር ነበር እና በትዕግስት እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ጥንቸል መዋኘት ስለማይችል በተበደለ መልኩ መጣ። እስፌው መማር ጊዜ እና ትዕግስት እንደሚያስፈልግ እና እያንዳንዱ ሰው በራሱ ፍጥነት እንደሚማር አስተማረት። ጥንቸሉ ጥበብ ብዙውን ጊዜ ከትዕግስት እና ከተስፋ በቀር እንደማይመጣ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 25)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Fox",
+      titleAm: "የጥበበኛው ቀበሮ",
+      contentEn:
+          "A wise fox lived in the forest and was known for solving problems. One day, two animals came to him arguing about who was stronger. The fox set up a challenge that showed them that true strength comes from working together. They learned that wisdom often means finding ways to bring people together rather than apart.",
+      contentAm:
+          "አንድ ጥበበኛ ቀበሮ በጫካ ውስጥ ይኖር ነበር እና ችግሮችን በመፍታት ይታወቅ ነበር። አንድ ቀን፣ ሁለት እንስሳት እርስ በርስ የትኛው ጠንካራ እንደሆነ በመከራከር መጡ። ቀበሮው እውነተኛ ጥንካሬ አንድ ላይ መስራት እንደሚመጣ የሚያሳይ ፈተና አደረገ። ጥበብ ብዙውን ጊዜ ሰዎችን አንድ ላይ እንዲመጡ መንገድ መፈለግ እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 22)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Elephant",
+      titleAm: "የጥበበኛው ዝሆን",
+      contentEn:
+          "A wise elephant lived in the jungle and was known for his good memory and wisdom. One day, a young monkey came to him, worried about forgetting things. The elephant taught the monkey that true wisdom comes not just from remembering, but from understanding and learning from our experiences. The monkey learned that wisdom means using what we know to make good choices.",
+      contentAm:
+          "አንድ ጥበበኛ ዝሆን በጁንግል ውስጥ ይኖር ነበር እና በጥሩ ትዝታ እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ዝንጀሮ ነገሮችን መርሳት በተጨናነቀ መልኩ መጣ። ዝሆኑ እውነተኛ ጥበብ ከማስታወስ ብቻ ሳይሆን ከመረዳት እና ከልምዶቻችን መማር እንደሚመጣ አስተማረት። ዝንጀሮው ጥበብ የምናውቅትን ነገር ጥሩ ምርጫዎች ለመድረግ መጠቀም እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 20)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Lion",
+      titleAm: "የጥበበኛው አንበሳ",
+      contentEn:
+          "A wise lion was the king of the jungle and was known for his fairness and wisdom. One day, two smaller animals came to him arguing about territory. The lion listened to both sides carefully and found a solution that worked for everyone. They learned that true wisdom means finding solutions that help everyone, not just the strongest.",
+      contentAm:
+          "አንድ ጥበበኛ አንበሳ የጁንግል ንጉሥ ነበር እና በትክክለኛነት እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ ሁለት ትናንሽ እንስሳት በመሬት በተመለከተ በመከራከር መጡ። አንበሳው ሁለቱንም ጎን በጥንቃቄ ሰማ፣ እና ለሁሉም ሰው የሚሰራ መፍትሄ አገኘ። እውነተኛ ጥበብ ለሁሉም ሰው የሚረዳ መፍትሄዎች መፈለግ እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 18)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Bear",
+      titleAm: "የጥበበኛው ድብ",
+      contentEn:
+          "A wise bear lived in the mountains and was known for his strength and wisdom. One day, a young deer came to him, afraid of the dark. The bear taught the deer that true courage comes from facing our fears and that wisdom helps us understand that many things we fear are not as scary as they seem. The deer learned that wisdom means being brave enough to face our fears.",
+      contentAm:
+          "አንድ ጥበበኛ ድብ በተራሮች ውስጥ ይኖር ነበር እና በጥንካሬ እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ቀጥላ ጥላ በተፈራ መልኩ መጣ። ድቡ እውነተኛ ብርታት ከፍርሃታችን መጋፋፍ እንደሚመጣ እና ጥበብ ብዙውን ጊዜ የምንፈራው ነገሮች እንደሚመስሉት እንዳልሆኑ መረዳት ይረዳናል አስተማረት። ቀጥላው ጥበብ ከፍርሃታችን መጋፋፍ በቂ ብርታት እንዳለን ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 15)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Wolf",
+      titleAm: "የጥበበኛው ተኩላ",
+      contentEn:
+          "A wise wolf lived in the forest and was known for his hunting skills and wisdom. One day, a young rabbit came to him, wanting to learn how to hunt. The wolf taught the rabbit that true wisdom comes from understanding our own strengths and limitations, and that we should work together rather than against each other. The rabbit learned that wisdom means knowing when to work together.",
+      contentAm:
+          "አንድ ጥበበኛ ተኩላ በጫካ ውስጥ ይኖር ነበር እና በመራመጥ ክህሎት እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ጥንቸል መራመጥ መማር ፈለገ። ተኩላው እውነተኛ ጥበብ የራሳችንን ጥንካሬ እና ገደብ መረዳት እንደሚመጣ እና እርስ በርስ ተቃውሞ ከመስራት ይልቅ አንድ ላይ መስራት እንዳለብን አስተማረት። ጥንቸሉ ጥበብ መቼ አንድ ላይ መስራት እንዳለብን መረዳት እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Eagle",
+      titleAm: "የጥበበኛው ንስር",
+      contentEn:
+          "A wise eagle lived high in the mountains and was known for his sharp vision and wisdom. One day, a young bird came to him, worried about finding its way. The eagle taught the bird that true wisdom comes from seeing the bigger picture and understanding that sometimes we need to look at things from a different perspective. The bird learned that wisdom means seeing beyond what's right in front of us.",
+      contentAm:
+          "አንድ ጥበበኛ ንስር በተራሮች ውስጥ ከፍ ብሎ ይኖር ነበር። እና በጥርቅ እይታ እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ወፍ መንገዱን መፈለግ በተጨናነቀ መልኩ መጣ። ንስሩ እውነተኛ ጥበብ ትልቅ ስዕል ማየት እና አንዳንድ ጊዜ ነገሮችን ከተለያየ አመለካከት መመልከት እንዳለብን መረዳት እንደሚመጣ አስተማረት። ወፉ ጥበብ በፊታችን ያለውን ነገር በላይ መማረጥ እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 10)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    // Add funny nature-themed fairy tales
+    _stories.add(Story(
+      titleEn: "The Cloud That Couldn't Rain",
+      titleAm: "ዝናብ ማውረድ ያቃተው ደመና",
+      contentEn:
+          "Once upon a time, there was a young cloud named Fluffy who had a big problem—he couldn't rain! While all the other clouds would drift over the dry lands and release their water, poor Fluffy would puff and strain, but not a single drop would fall. The other clouds teased him, calling him 'Dry Puff' and 'Waterless Wonder.' One day, a tiny bird with bright blue feathers landed on Fluffy. \"Why so gloomy?\" chirped the bird. Fluffy explained his embarrassing problem. \"Hmm,\" said the bird. \"Have you tried laughing?\" \"Laughing?\" Fluffy was confused. \"Yes! When I laugh too hard, sometimes tears come out!\" So Fluffy watched the silly antics of monkeys swinging in trees and children making funny faces. He started to giggle, then chuckle, then laugh so hard that suddenly—SPLASH! The rain began to pour! From then on, whenever Fluffy needed to rain, he would find something funny to watch. The farmers below grew to love the sound of his special 'laughing rain,' which always seemed to make their crops grow taller and more colorful than any other rain. Sometimes our problems don't need serious solutions—they just need a different perspective and a good laugh!",
+      contentAm:
+          "አንድ ጊዜ ፍላፊ የሚባል ትንሽ ደመና ነበር፣ ትልቅ ችግር ነበረው—ዝናብ ማውረድ አይችልም! ሌሎች ደመናዎች ሁሉ በደረቅ መሬቶች ላይ ተንሳፍፈው ውሃቸውን ሲለቅቁ፣ ምስኪኑ ፍላፊ ይጨናነቅና ይወጠርም ነበር፣ ግን አንድም ጠብታ አይወድቅም ነበር። ሌሎቹ ደመናዎች ይሳለቁበት ነበር፣ 'ደረቅ ነፋሽ' እና 'ውሃ አልባ ድንቅ' እያሉ ይጠሩታል። አንድ ቀን፣ አንድ ብሩህ ሰማያዊ ላባዎች ያለው ትንሽ ወፍ በፍላፊ ላይ ተቀመጠ። \"ለምን እንደዚህ ትጨነቃለህ?\" ብሎ ወፍየው ጮኸ። ፍላፊ አሳፋሪ ችግሩን ገለጸለት። \"ኧረ ይሄ ነው፣\" አለ ወፉ። \"መሳቅ ሞክረሃል?\" \"መሳቅ?\" ፍላፊ ግራ ገባው። \"አዎ! በጣም ሳቅ ሲበዛኝ፣ አንዳንድ ጊዜ እንባ ይወጣኛል!\" ስለዚህ ፍላፊ በዛፎች ላይ የሚነጋገዱ ዝንጀሮዎችን አሽሙር እና ልጆች አስቂኝ ፊቶች ሲሠሩ ይመለከት ጀመር። መጀመሪያ ትንሽ ሳቀ፣ ከዚያ አፍጥጦ ሳቀ፣ በመጨረሻም በጣም እስኪሳቅ ድረስ ድንገት—ርጥብ ሆነ! ዝናቡ መውረድ ጀመረ! ከዚያ ጊዜ ጀምሮ፣ ፍላፊ ዝናብ ማውረድ ሲፈልግ፣ የሚያስቅ ነገር ይፈልጋል። ከታች ያሉት ገበሬዎች የእሱን ልዩ 'የሳቅ ዝናብ' ድምፅ ይወዱ ጀመር፣ ሁልጊዜም እሱ ዝናብ ሲያወርድ ሰብሎቻቸው ከሌላ ማንኛውም ዝናብ የበለጠ ረዥምና ቀለም የበዛባቸው ሆነው ያድጋሉ። አንዳንድ ጊዜ ችግሮቻችን ከባድ መፍትሄዎች አያስፈልጓቸውም—የሚያስፈልጋቸው የተለየ አመለካከትና ጥሩ ሳቅ ብቻ ነው!",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 14)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Waterfall That Flowed Upwards",
+      titleAm: "ወደ ላይ የሚፈስ ፏፏቴ",
+      contentEn:
+          "In the heart of a lush forest, there was a most unusual waterfall. While all other waterfalls flowed downward, this peculiar waterfall, named Flipsy, flowed upward! The water would gather at the bottom of a cliff and then, quite bizarrely, rush upward against the rocky wall, splashing and dancing as it climbed rather than fell. Animals came from far and wide to witness this strange phenomenon. Scientists were baffled, tourists took countless photos, and the local mayor even wanted to build a tourist center. But a clever monkey named Miko noticed something odd. \"Wait a minute,\" he said one day, climbing behind the waterfall. \"This isn't magic at all!\" It turned out a family of playful otters had built an elaborate system of bamboo pipes that secretly pumped water up from the river below. When confronted, the chief otter grinned sheepishly. \"We just wanted to make something amazing,\" he admitted. Rather than being angry, the forest creatures were impressed by the otters' ingenuity. They all worked together to create an even more spectacular upside-down waterfall, with colored lights and musical bamboo chimes that played when the water hit them. Sometimes what seems like magic is really just creativity and hard work, and that can be even more impressive than real magic!",
+      contentAm:
+          "በደን ልብ ውስጥ፣ በጣም ያልተለመደ ውሃ ፏፏቴ ነበር። ሌሎች ፏፏቴዎች ሁሉ ወደ ታች እየፈሰሱ እያለ፣ ይህ ልዩ ፏፏቴ፣ ፍሊፕሲ የሚባለው፣ ወደ ላይ ይፈሳል! ውሃው በአንድ ኮረብታ ግርጌ ይሰበሰባል፣ ከዚያም በጣም በሚያስገርም ሁኔታ ድንጋያማው ግድግዳ ላይ ወደ ላይ ይሮጣል፣ እየተፈናጠረና እየዘለለ ወደ ላይ ይወጣል ወደ ታች አይወድቅም። እንስሳት ይህን ያልተለመደ ክስተት ለመመልከት ከሩቅ ይመጡ ነበር። ሳይንቲስቶች ግራ ገብቷቸዋል፣ ጎብኚዎች የማያቋርጥ ፎቶዎች ያነሱበት፣ የአካባቢው ከንቲባም የጎብኚዎች ማእከል ለመገንባት ይፈልግ ነበር። ነገር ግን ሚኮ የሚባል አስተዋይ ዝንጀሮ ያልተለመደ ነገር ተመለከተ። \"ቆይ እስቲ፣\" ብሎ አንድ ቀን ከውሃ ፏፏቴው ኋላ በመውጣት። \"ይህ ጭራሽ ድንቅ ነገር አይደለም!\" በመጨረሻም የተጫዋች ዶሮዎች ቤተሰብ ከታች ካለው ወንዝ ውሃን በምስጢር ወደ ላይ የሚያጠጣ የሾላ ትቦዎች ውስብስብ ሥርዓት እንደገነቡ ታወቀ። ሲጠየቁ፣ ዋናው ዶሮ ከአፍንጫ በታች ፈገግ አለ። \"አስደናቂ ነገር ለመፍጠር ፈልገን ነበር፣\" ሲል ተቀበለ። ከመናደድ ይልቅ፣ የጫካ ፍጥረታት በዶሮዎች ብልሃት ተደንቀዋል። ሁሉም አብረው ይበልጥ ድንቅ የሆነ ወደ ላይ የሚፈስ ፏፏቴ ፈጠሩ፣ ከቀለም መብራቶችና ውሃው ሲመታቸው የሚጫወቱ የሙዚቃ የሾላ ደወሎች ጋር። አንዳንድ ጊዜ ድንቅ መስሎ የሚታየው ነገር በእውነቱ ፈጠራና ጠንክሮ መሥራት ነው፣ ይህም ከእውነተኛ ድንቅ ነገር በላይ አስገራሚ ሊሆን ይችላል!",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 11)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Tree That Traveled",
+      titleAm: "የጓዘው ዛፍ",
+      contentEn:
+          "Once there was a towering oak tree named Oakley who had stood in the same spot for over two hundred years. He had watched generations of animals make homes in his branches and children play in his shade. But Oakley had a secret dream—he wanted to see the world! \"If only I could travel,\" he would sigh to the birds who nested in his branches. \"You have roots, Oakley,\" they would remind him. \"Trees can't travel.\" One stormy night, a powerful gust of wind, stronger than any Oakley had felt before, blew through the forest. Oakley felt his roots loosen in the soggy ground. Instead of being frightened, he was excited! With one final push, he was uprooted—but rather than falling over, something magical happened. His roots curled up like legs, and he found he could walk! For weeks, Oakley traveled through forests and meadows, across streams, and even along a busy road (causing quite a traffic jam and appearing in several viral videos). He saw mountains and lakes and visited a city park where he met other trees who were amazed by his tales. Eventually, Oakley found a beautiful hillside overlooking the ocean—a view he had always dreamed of. There he planted his roots once more, happy to rest after his adventures. To this day, hikers who pass Oakley swear they've seen him lift a root now and then, as if taking a little step. Some dreams are worth waiting centuries for, and sometimes the most unlikely adventures are the most wonderful of all.",
+      contentAm:
+          "አንድ ጊዜ ኦክሊ የሚባል ረጅም የኦክ ዛፍ ነበር ከሁለት መቶ ዓመታት በላይ በተመሳሳይ ቦታ ቆሞ የነበረ። ትውልዶች የእንስሳት በቅርንጫፎቹ ላይ ቤቶችን ሲሰሩና ልጆች በጥላው ሲጫወቱ ይመለከት ነበር። ግን ኦክሊ ምስጢራዊ ህልም ነበረው — ዓለምን ማየት ይፈልግ ነበር! \"ብቻ መጓዝ ብችል ኖሮ፣\" በቅርንጫፎቹ ላይ ጎጆ ለሚሰሩት ወፎች ይናፍቅ ነበር። \"ሥሮች አሉህ፣ ኦክሊ\" ብለው ያስታውሱታል። \"ዛፎች መጓዝ አይችሉም።\" አንድ አውሎንፋሳዊ ምሽት፣ ኦክሊ ከዚህ ቀደም ካሰው በላይ ጠንካራ የሆነ የንፋስ ማዕበል በጫካው ውስጥ አለፈ። ኦክሊ ሥሮቹ በረጠበ መሬት ላይ ሲላሉ ተሰማው። ከመደንገጥ ይልቅ ተደሰተ! በመጨረሻው ግፊት ሥሩ ተመነጠረ — ግን ከመውደቅ ይልቅ አንድ ድንቅ ነገር ተከሰተ። ሥሮቹ እንደ እግሮች ተጠምጠመው፣ መራመድ እንደሚችል አገኘ! ለሳምንታት፣ ኦክሊ በደኖችና በሣር ሜዳዎች፣ በፈሳሾች አቋርጦ፣ እንዲሁም በተጨናነቀ መንገድ ላይ ተጓዘ (የተጨናነቀ የመኪና መጨናነቅ በመፍጠርና በብዙ ቪዲዮዎች በመታየት)። ተራሮችንና ሐይቆችን ተመለከተ እንዲሁም ታሪኮቹን በሚደነቁ ሌሎች ዛፎች የሚገኝ የከተማ ፓርክ ጎበኘ። በመጨረሻም፣ ኦክሊ ውቅያኖስን የሚያይ ውብ ኮረብታ ላይ አገኘ — ሁልጊዜም ይመኘው የነበረ እይታ። እዚያም ከጉዞው በኋላ ደስተኛ ሆኖ ዳግም ሥሮቹን ተከለ። እስከዛሬ ድረስ፣ ኦክሊን የሚያልፉ ተጓዦች እንደ ትንሽ እርምጃ እያነሳ አንድ ሥር ከጊዜ ወደ ጊዜ ሲያነሳ እንዳዩት ይማሉ። አንዳንድ ህልሞች ለዘመናት መጠበቅ ይገባቸዋል፣ አንዳንድ ጊዜ ከሁሉም ያልተጠበቁ ጉዞዎች ከሁሉም ድንቅ ናቸው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 9)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Sun's Holiday",
+      titleAm: "የፀሐይ ዕረፍት",
+      contentEn:
+          "After shining brightly for thousands of years without a single day off, the Sun decided she needed a vacation. \"Just a quick three-day weekend,\" she told the Moon. \"Could you cover for me?\" The Moon agreed but reminded the Sun that he normally only worked nights and wasn't nearly as bright. \"It'll be fine,\" the Sun assured him as she packed her sunglasses (yes, even the Sun needs eye protection sometimes) and sunscreen (ironic, but she burns easily). The first morning without the Sun was chaotic. People overslept because their rooms stayed dark. Plants drooped in confusion. The Moon tried his best, glowing as brightly as he could, but it was still only as bright as twilight. \"I'm not cut out for this day shift,\" he muttered, exhausted after just a few hours. Meanwhile, the Sun was relaxing at a cosmic spa, getting her solar flares massaged and enjoying not having to maintain nuclear fusion for a bit. Back on Earth, things were getting chilly. Scientists held emergency meetings. News anchors reported while wearing parkas indoors. On day two, the stars offered to help, and thousands of them moved closer to Earth to provide more light. It helped a little, but it was still dim and getting colder. By day three, Earth had sent a delegation of birds flying as high as they could with a message: \"PLEASE COME BACK! WE MISS YOU!\" The Sun, touched by how much she was needed and missed (and feeling refreshed after her treatments), cut her vacation short and returned early. As she approached Earth, she heard the cheers of billions of relieved plants, animals, and people. \"Sorry about that!\" she called, beaming extra brightly to warm things up again. Ever since, the Sun has taken shorter breaks—just a few minutes during what we call eclipses. And Earth's inhabitants learned never to take daylight for granted again. Sometimes you don't appreciate what you have until it takes a vacation!",
+      contentAm:
+          "ለሺህ ዓመታት ያህል ያለ አንድም የእረፍት ቀን በድምቀት ከበራች በኋላ፣ ፀሐይ እረፍት እንደሚያስፈልጋት ወሰነች። \"ለሶስት ቀን የሚቆይ የሳምንቱ መጨረሻ ብቻ፣\" ብላ ጨረቃን ነገረችው። \"ለእኔ ልትሸፍንልኝ ትችላለህ?\" ጨረቃም ተስማማ ግን በአብዛኛው ሌሊት ላይ እንደሚሰራና እንደ እሷ ብርሃናማ እንዳልሆነ አስታወሳት። \"ደህና ይሆናል፣\" ብላ ፀሐይ ዓይነ ጠባቂዋን (አዎ፣ ፀሐይም ቢሆን አንዳንድ ጊዜ የዓይን ጥበቃ ያስፈልጋታል) እና የፀሐይ መከላከያ ቅባት (አስቂኝ ቢሆንም፣ በቀላሉ ትቃጠላለች) ስትሸከም አረጋገጠችለት። ያለ ፀሐይ የመጀመሪያው ጠዋት ሁከት ነበር። ሰዎች ክፍላቸው ጨለማ በመሆኑ ከእንቅልፍ አልነቁም ነበር። ተክሎች በግራ መጋባት ደከሙ። ጨረቃው በተቻለው አቅም ሁሉ፣ በብርሃኑ ሲያበራ ሞከረ፣ ግን ገና የጎህ ብርሃን ያህል ብቻ ነበር። \"ለዚህ የቀን ፈረቃ ብቁ አይደለሁም፣\" ብሎ በጥቂት ሰዓታት ብቻ ደክሞት ተንጎመጎመ። በዚህ ጊዜ፣ ፀሐይ በሕዋስ መዝናኛ ቦታ እየተዝናናች፣ የፀሐይ ነበልባሎቿ እንዲታሹላት እያደረገች እና ለጥቂት ጊዜም ቢሆን የኑክሊየር ፍዩዥን ማቆየት ሳያስፈልጋት ደስታዋን እየተደሰተች ነበር። በምድር ላይ፣ ነገሮች እየቀዘቀዙ ነበር። ሳይንቲስቶች የአስቸኳይ ስብሰባዎችን አካሄዱ። የዜና አወራጆች ፓርካዎችን በቤት ውስጥ ለብሰው ዘገቡ። በሁለተኛው ቀን፣ ከዋክብት ለመርዳት ቀረቡ፣ ብዙ ሺህ ከዋክብትም ተጨማሪ ብርሃን ለመስጠት ወደ ምድር ተጠጋጉ። ትንሽ ረዳ፣ ግን አሁንም ጨለማ እና ይበልጥ ቀዝቃዛ እየሆነ ነበር። በሶስተኛው ቀን፣ ምድር የወፎች ልዑክ ልኮ በተቻለ ከፍታ በሙሉ: \"እባክሽ ተመለሺ! እናፈልግሻለን!\" በሚል መልዕክት እጅግ ከፍ ብለው እንዲበሩ አደረገች። ፀሐይም፣ በምን ያህል እንደምትፈለግና እንደተናፈቀች ተነክታ (ከህክምናዎቿም በኋላ ታድሳ)፣ እረፍቷን አሳጥራ ቶሎ ተመለሰች። ወደ ምድር ስትቃረብ፣ ከብዙ ቢሊዮን የሚቆጠሩ የተጽናኑ ተክሎች፣ እንስሳት፣ እና ሰዎች ጭብጨባን ሰማች። \"ስለዚህ ይቅርታ!\" በማለት ጮኸች፣ ነገሮችን ዳግመኛ ለማሞቅ ተጨማሪ ድምቀት እየሰጠች። ከዚያን ጊዜ ጀምሮ፣ ፀሐይ አጭር ዕረፍቶችን ወስዳለች - እኛ የፀሐይ ግርዶሽ የምንላቸው ለጥቂት ደቂቃዎች ብቻ። እናም የምድር ነዋሪዎች ቀኑን በፍጹም እንዳይገምቱ ተማሩ። አንዳንድ ጊዜ ያለህን ነገር አታደንቅም፣ ከእረፍት ለመውሰድ ስሞክር ብቻ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 8)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Waterfall That Flowed Upwards",
+      titleAm: "ወደ ላይ የሚፈስ ፏፏቴ",
+      contentEn:
+          "In the heart of a lush forest, there was a most unusual waterfall. While all other waterfalls flowed downward, this peculiar waterfall, named Flipsy, flowed upward! The water would gather at the bottom of a cliff and then, quite bizarrely, rush upward against the rocky wall, splashing and dancing as it climbed rather than fell. Animals came from far and wide to witness this strange phenomenon. Scientists were baffled, tourists took countless photos, and the local mayor even wanted to build a tourist center. But a clever monkey named Miko noticed something odd. \"Wait a minute,\" he said one day, climbing behind the waterfall. \"This isn't magic at all!\" It turned out a family of playful otters had built an elaborate system of bamboo pipes that secretly pumped water up from the river below. When confronted, the chief otter grinned sheepishly. \"We just wanted to make something amazing,\" he admitted. Rather than being angry, the forest creatures were impressed by the otters' ingenuity. They all worked together to create an even more spectacular upside-down waterfall, with colored lights and musical bamboo chimes that played when the water hit them. Sometimes what seems like magic is really just creativity and hard work, and that can be even more impressive than real magic!",
+      contentAm:
+          "በደን ልብ ውስጥ፣ በጣም ያልተለመደ ውሃ ፏፏቴ ነበር። ሌሎች ፏፏቴዎች ሁሉ ወደ ታች እየፈሰሱ እያለ፣ ይህ ልዩ ፏፏቴ፣ ፍሊፕሲ የሚባለው፣ ወደ ላይ ይፈሳል! ውሃው በአንድ ኮረብታ ግርጌ ይሰበሰባል፣ ከዚያም በጣም በሚያስገርም ሁኔታ ድንጋያማው ግድግዳ ላይ ወደ ላይ ይሮጣል፣ እየተፈናጠረና እየዘለለ ወደ ላይ ይወጣል ወደ ታች አይወድቅም። እንስሳት ይህን ያልተለመደ ክስተት ለመመልከት ከሩቅ ይመጡ ነበር። ሳይንቲስቶች ግራ ገብቷቸዋል፣ ጎብኚዎች የማያቋርጥ ፎቶዎች ያነሱበት፣ የአካባቢው ከንቲባም የጎብኚዎች ማእከል ለመገንባት ይፈልግ ነበር። ነገር ግን ሚኮ የሚባል አስተዋይ ዝንጀሮ ያልተለመደ ነገር ተመለከተ። \"ቆይ እስቲ፣\" ብሎ አንድ ቀን ከውሃ ፏፏቴው ኋላ በመውጣት። \"ይህ ጭራሽ ድንቅ ነገር አይደለም!\" በመጨረሻም የተጫዋች ዶሮዎች ቤተሰብ ከታች ካለው ወንዝ ውሃን በምስጢር ወደ ላይ የሚያጠጣ የሾላ ትቦዎች ውስብስብ ሥርዓት እንደገነቡ ታወቀ። ሲጠየቁ፣ ዋናው ዶሮ ከአፍንጫ በታች ፈገግ አለ። \"አስደናቂ ነገር ለመፍጠር ፈልገን ነበር፣\" ሲል ተቀበለ። ከመናደድ ይልቅ፣ የጫካ ፍጥረታት በዶሮዎች ብልሃት ተደንቀዋል። ሁሉም አብረው ይበልጥ ድንቅ የሆነ ወደ ላይ የሚፈስ ፏፏቴ ፈጠሩ፣ ከቀለም መብራቶችና ውሃው ሲመታቸው የሚጫወቱ የሙዚቃ የሾላ ደወሎች ጋር። አንዳንድ ጊዜ ድንቅ መስሎ የሚታየው ነገር በእውነቱ ፈጠራና ጠንክሮ መሥራት ነው፣ ይህም ከእውነተኛ ድንቅ ነገር በላይ አስገራሚ ሊሆን ይችላል!",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 11)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Tree That Traveled",
+      titleAm: "የጓዘው ዛፍ",
+      contentEn:
+          "Once there was a towering oak tree named Oakley who had stood in the same spot for over two hundred years. He had watched generations of animals make homes in his branches and children play in his shade. But Oakley had a secret dream—he wanted to see the world! \"If only I could travel,\" he would sigh to the birds who nested in his branches. \"You have roots, Oakley,\" they would remind him. \"Trees can't travel.\" One stormy night, a powerful gust of wind, stronger than any Oakley had felt before, blew through the forest. Oakley felt his roots loosen in the soggy ground. Instead of being frightened, he was excited! With one final push, he was uprooted—but rather than falling over, something magical happened. His roots curled up like legs, and he found he could walk! For weeks, Oakley traveled through forests and meadows, across streams, and even along a busy road (causing quite a traffic jam and appearing in several viral videos). He saw mountains and lakes and visited a city park where he met other trees who were amazed by his tales. Eventually, Oakley found a beautiful hillside overlooking the ocean—a view he had always dreamed of. There he planted his roots once more, happy to rest after his adventures. To this day, hikers who pass Oakley swear they've seen him lift a root now and then, as if taking a little step. Some dreams are worth waiting centuries for, and sometimes the most unlikely adventures are the most wonderful of all.",
+      contentAm:
+          "አንድ ጊዜ ኦክሊ የሚባል ረጅም የኦክ ዛፍ ነበር ከሁለት መቶ ዓመታት በላይ በተመሳሳይ ቦታ ቆሞ የነበረ። ትውልዶች የእንስሳት በቅርንጫፎቹ ላይ ቤቶችን ሲሰሩና ልጆች በጥላው ሲጫወቱ ይመለከት ነበር። ግን ኦክሊ ምስጢራዊ ህልም ነበረው — ዓለምን ማየት ይፈልግ ነበር! \"ብቻ መጓዝ ብችል ኖሮ፣\" በቅርንጫፎቹ ላይ ጎጆ ለሚሰሩት ወፎች ይናፍቅ ነበር። \"ሥሮች አሉህ፣ ኦክሊ\" ብለው ያስታውሱታል። \"ዛፎች መጓዝ አይችሉም።\" አንድ አውሎንፋሳዊ ምሽት፣ ኦክሊ ከዚህ ቀደም ካሰው በላይ ጠንካራ የሆነ የንፋስ ማዕበል በጫካው ውስጥ አለፈ። ኦክሊ ሥሮቹ በረጠበ መሬት ላይ ሲላሉ ተሰማው። ከመደንገጥ ይልቅ ተደሰተ! በመጨረሻው ግፊት ሥሩ ተመነጠረ — ግን ከመውደቅ ይልቅ አንድ ድንቅ ነገር ተከሰተ። ሥሮቹ እንደ እግሮች ተጠምጠመው፣ መራመድ እንደሚችል አገኘ! ለሳምንታት፣ ኦክሊ በደኖችና በሣር ሜዳዎች፣ በፈሳሾች አቋርጦ፣ እንዲሁም በተጨናነቀ መንገድ ላይ ተጓዘ (የተጨናነቀ የመኪና መጨናነቅ በመፍጠርና በብዙ ቪዲዮዎች በመታየት)። ተራሮችንና ሐይቆችን ተመለከተ እንዲሁም ታሪኮቹን በሚደነቁ ሌሎች ዛፎች የሚገኝ የከተማ ፓርክ ጎበኘ። በመጨረሻም፣ ኦክሊ ውቅያኖስን የሚያይ ውብ ኮረብታ ላይ አገኘ — ሁልጊዜም ይመኘው የነበረ እይታ። እዚያም ከጉዞው በኋላ ደስተኛ ሆኖ ዳግም ሥሮቹን ተከለ። እስከዛሬ ድረስ፣ ኦክሊን የሚያልፉ ተጓዦች እንደ ትንሽ እርምጃ እያነሳ አንድ ሥር ከጊዜ ወደ ጊዜ ሲያነሳ እንዳዩት ይማሉ። አንዳንድ ህልሞች ለዘመናት መጠበቅ ይገባቸዋል፣ አንዳንድ ጊዜ ከሁሉም ያልተጠበቁ ጉዞዎች ከሁሉም ድንቅ ናቸው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 9)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Sun's Holiday",
+      titleAm: "የፀሐይ ዕረፍት",
+      contentEn:
+          "After shining brightly for thousands of years without a single day off, the Sun decided she needed a vacation. \"Just a quick three-day weekend,\" she told the Moon. \"Could you cover for me?\" The Moon agreed but reminded the Sun that he normally only worked nights and wasn't nearly as bright. \"It'll be fine,\" the Sun assured him as she packed her sunglasses (yes, even the Sun needs eye protection sometimes) and sunscreen (ironic, but she burns easily). The first morning without the Sun was chaotic. People overslept because their rooms stayed dark. Plants drooped in confusion. The Moon tried his best, glowing as brightly as he could, but it was still only as bright as twilight. \"I'm not cut out for this day shift,\" he muttered, exhausted after just a few hours. Meanwhile, the Sun was relaxing at a cosmic spa, getting her solar flares massaged and enjoying not having to maintain nuclear fusion for a bit. Back on Earth, things were getting chilly. Scientists held emergency meetings. News anchors reported while wearing parkas indoors. On day two, the stars offered to help, and thousands of them moved closer to Earth to provide more light. It helped a little, but it was still dim and getting colder. By day three, Earth had sent a delegation of birds flying as high as they could with a message: \"PLEASE COME BACK! WE MISS YOU!\" The Sun, touched by how much she was needed and missed (and feeling refreshed after her treatments), cut her vacation short and returned early. As she approached Earth, she heard the cheers of billions of relieved plants, animals, and people. \"Sorry about that!\" she called, beaming extra brightly to warm things up again. Ever since, the Sun has taken shorter breaks—just a few minutes during what we call eclipses. And Earth's inhabitants learned never to take daylight for granted again. Sometimes you don't appreciate what you have until it takes a vacation!",
+      contentAm:
+          "ለሺህ ዓመታት ያህል ያለ አንድም የእረፍት ቀን በድምቀት ከበራች በኋላ፣ ፀሐይ እረፍት እንደሚያስፈልጋት ወሰነች። \"ለሶስት ቀን የሚቆይ የሳምንቱ መጨረሻ ብቻ፣\" ብላ ጨረቃን ነገረችው። \"ለእኔ ልትሸፍንልኝ ትችላለህ?\" ጨረቃም ተስማማ ግን በአብዛኛው ሌሊት ላይ እንደሚሰራና እንደ እሷ ብርሃናማ እንዳልሆነ አስታወሳት። \"ደህና ይሆናል፣\" ብላ ፀሐይ ዓይነ ጠባቂዋን (አዎ፣ ፀሐይም ቢሆን አንዳንድ ጊዜ የዓይን ጥበቃ ያስፈልጋታል) እና የፀሐይ መከላከያ ቅባት (አስቂኝ ቢሆንም፣ በቀላሉ ትቃጠላለች) ስትሸከም አረጋገጠችለት። ያለ ፀሐይ የመጀመሪያው ጠዋት ሁከት ነበር። ሰዎች ክፍላቸው ጨለማ በመሆኑ ከእንቅልፍ አልነቁም ነበር። ተክሎች በግራ መጋባት ደከሙ። ጨረቃው በተቻለው አቅም ሁሉ፣ በብርሃኑ ሲያበራ ሞከረ፣ ግን ገና የጎህ ብርሃን ያህል ብቻ ነበር። \"ለዚህ የቀን ፈረቃ ብቁ አይደለሁም፣\" ብሎ በጥቂት ሰዓታት ብቻ ደክሞት ተንጎመጎመ። በዚህ ጊዜ፣ ፀሐይ በሕዋስ መዝናኛ ቦታ እየተዝናናች፣ የፀሐይ ነበልባሎቿ እንዲታሹላት እያደረገች እና ለጥቂት ጊዜም ቢሆን የኑክሊየር ፍዩዥን ማቆየት ሳያስፈልጋት ደስታዋን እየተደሰተች ነበር። በምድር ላይ፣ ነገሮች እየቀዘቀዙ ነበር። ሳይንቲስቶች የአስቸኳይ ስብሰባዎችን አካሄዱ። የዜና አወራጆች ፓርካዎችን በቤት ውስጥ ለብሰው ዘገቡ። በሁለተኛው ቀን፣ ከዋክብት ለመርዳት ቀረቡ፣ ብዙ ሺህ ከዋክብትም ተጨማሪ ብርሃን ለመስጠት ወደ ምድር ተጠጋጉ። ትንሽ ረዳ፣ ግን አሁንም ጨለማ እና ይበልጥ ቀዝቃዛ እየሆነ ነበር። በሶስተኛው ቀን፣ ምድር የወፎች ልዑክ ልኮ በተቻለ ከፍታ በሙሉ: \"እባክሽ ተመለሺ! እናፈልግሻለን!\" በሚል መልዕክት እጅግ ከፍ ብለው እንዲበሩ አደረገች። ፀሐይም፣ በምን ያህል እንደምትፈለግና እንደተናፈቀች ተነክታ (ከህክምናዎቿም በኋላ ታድሳ)፣ እረፍቷን አሳጥራ ቶሎ ተመለሰች። ወደ ምድር ስትቃረብ፣ ከብዙ ቢሊዮን የሚቆጠሩ የተጽናኑ ተክሎች፣ እንስሳት፣ እና ሰዎች ጭብጨባን ሰማች። \"ስለዚህ ይቅርታ!\" በማለት ጮኸች፣ ነገሮችን ዳግመኛ ለማሞቅ ተጨማሪ ድምቀት እየሰጠች። ከዚያን ጊዜ ጀምሮ፣ ፀሐይ አጭር ዕረፍቶችን ወስዳለች - እኛ የፀሐይ ግርዶሽ የምንላቸው ለጥቂት ደቂቃዎች ብቻ። እናም የምድር ነዋሪዎች ቀኑን በፍጹም እንዳይገምቱ ተማሩ። አንዳንድ ጊዜ ያለህን ነገር አታደንቅም፣ ከእረፍት ለመውሰድ ስሞክር ብቻ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 8)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    // Add family stories
+    _stories.add(Story(
+      titleEn: "The Magical Family Dinner",
+      titleAm: "ድንቅ የቤተሰብ እራት",
+      contentEn:
+          "Every Friday in the Abebe family home, something magical happened. Grandmother Kidist prepared a feast that brought everyone together from miles around. Her injera was so perfectly spongy that children believed it had been blessed by angels. Her doro wat was so rich and flavorful that neighbors could smell it three houses away. But the true magic wasn't in the food itself—it was in what happened around the table. As family members arrived, all arguments were forgotten. Cousins who had quarreled all week suddenly remembered they were best friends. Uncle Yonas's stories grew more incredible with each telling, and no one minded. Little Tigist always asked to hear how her parents met, even though she knew the story by heart. When Grandmother Kidist rang the small brass bell, everyone hurried to wash their hands. They gathered around the table, where steam rose from the dishes like morning mist over mountains. Before eating, each person shared one good thing that happened that week. Even on the hardest weeks, everyone found something to share. \"In our family,\" Grandmother often said, \"we eat the food, but we feast on our stories and love.\" Years later, when family members moved far away for school or work, they would close their eyes on Friday evenings and swear they could smell Grandmother's doro wat, carrying her love across any distance.",
+      contentAm:
+          "በአበበ ቤተሰብ ቤት ውስጥ በየአርብ ቀን አንድ ድንቅ ነገር ይከሰት ነበር። አያት ቅድስት ከብዙ ሩቅ ቦታ የሚመጣውን ሁሉ የሚያስተሳስር ግብዣ ታዘጋጅ ነበር። እንጀራዋ እንደ ስፍንጥሮሽ ፍጹም የሆነ በመሆኑ ልጆች በመላእክት እንደተባረከ ያምኑ ነበር። የዶሮ ወጧም በጣም 풍부고 ጣእም የሞላበት ስለሆነ ጎረቤቶቿ በሶስት ቤቶች ርቀት ሊሸቱት ይችሉ ነበር። ነገር ግን እውነተኛው ድንቅ በምግቡ ራሱ ውስጥ አልነበረም-በገበታው ዙሪያ የሚከሰት ነገር ነበር። የቤተሰብ አባላት ሲመጡ፣ ሁሉም ክርክሮች ይረሱ ነበር። ሳምንቱን በሙሉ የተጣሉ የአጎት ልጆች ድንገት ታላላቅ ጓደኞች መሆናቸውን አስታወሱ ። የአጎት ዮናስ ታሪኮች በየምዕራፉ ይበልጥ አስደናቂ እየሆኑ ሄዱ፣ እና ማንም አላስጨነቀውም። ትንሿ ትግስት ታሪኩን በልቧ ታውቀው ቢሆንም፣ ሁልጊዜም ወላጆቿ እንዴት እንደተገናኙ እንድትሰማ ትጠይቅ ነበር። አያት ቅድስት ትንሿን የናስ ደወል ስትደውል፣ ሁሉም እጃቸውን ለመታጠብ ይቻኮላሉ። እንደ ተራሮች ላይ የጠዋት ጭጋግ፣ ጠል ከምግቦቹ ላይ እየወጣ ገበታውን ከበው ይሰበሰባሉ። ከመመገባቸው በፊት፣ እያንዳንዱ ሰው ባለፈው ሳምንት የተከሰተውን አንድ መልካም ነገር ያካፍላል። በጣም ከባድ በሆኑ ሳምንታት ላይም እንኳ፣ ሁሉም የሚካፈሉትን አንድ ነገር ያገኙ ነበር። \"በቤተሰባችን ውስጥ፣\" አያት ቅድስት ብዙ ጊዜ ትል ነበር፣ \"ምግቡን እንበላለን፣ ግን ታሪኮቻችንንና ፍቅራችንን እናከብራለን።\" ከዓመታት በኋላ፣ የቤተሰብ አባላት ለትምህርት ወይም ለሥራ በጣም ሩቅ ቦታ ሲሄዱ፣ በአርብ ምሽቶቻቸውን ይዘጉና የአያት ቅድስትን የዶሮ ወጥ ማሽተት፣ በማንኛውም ርቀት ፍቅሯን ይጓጓዝ ዘንድ መቻሉን ይማሉ ነበር።",
+      type: StoryType.fairyTale,
+      topic: "Family",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.family,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Family Quilt",
+      titleAm: "የቤተሰብ ብርድ ልብስ",
+      contentEn:
+          "For as long as anyone could remember, the Tesfa family had passed down a special tradition. Whenever a child turned ten years old, they would add their own square to the family quilt. This quilt was enormous—nearly covering an entire wall of their home—and contained pieces of fabric dating back six generations. Every square told a story. Great-great-grandmother Alemitu had used a piece of her wedding dress. Grandfather Debebe had added fabric from his first school uniform. Aunt Makeda had sewn in a piece of the curtain from the theater where she'd performed her first dance recital. When Ayana's tenth birthday approached, she worried constantly. \"I don't have anything special enough,\" she confided in her mother. For weeks, she searched for the perfect fabric, but nothing seemed right. The day before her birthday, a terrible storm hit, forcing her family to huddle together in the living room all night. To calm everyone's fears, they shared stories about each square on the family quilt, laughing and sometimes crying as they remembered. By morning, the storm had passed, and something appeared on their front lawn—a magnificent rainbow, brighter than any they'd seen before. \"That's it!\" Ayana exclaimed. She took the white shirt she had worn during the storm and used her paint set to create a rainbow pattern on a square of it. When she added it to the quilt, everyone agreed it was perfect. \"The storm brought fear,\" she explained, \"but it also brought our family together, just like this quilt does.\" Now, when visitors came to their home, the rainbow square was always part of the story—a reminder that together, they could weather any storm.",
+      contentAm:
+          "ማንም ሊያስታውሰው ከሚችለው ጊዜ ጀምሮ፣ የተስፋ ቤተሰብ ልዩ ልማድ ትውልድን አሻግረው ነበር። አንድ ልጅ አሥር ዓመት ሲሞላው፣ የራሱን ካሬ በቤተሰቡ ብርድ ልብስ ላይ ይጨምራል። ይህ ቤተሰባዊ ብርድ ልብስ ግዙፍ ነበር-የመኖሪያ ቤታቸውን ሙሉ ግድግዳ ሊሸፍን የሚችል-እና ከስድስት ትውልዶች ጀምሮ የሚቆጠሩ የጨርቅ ቁራጮች ይይዛል። እያንዳንዱ ካሬ ታሪክ ይጠራል። ታላቋ አያት አለሚቱ ከሠርግ ቀሚሷ ቁራጭ ተጠቅማለች። አያት ደበበ ከመጀመሪያው የትምህርት ቤት ዩኒፎርም ጨርቅ አክሏል። አክስት መከዳ ከመጀመሪያው የዳንስ ትዕይንቷ ከታየበት ቲያትር መጋረጃ ቁራጭ ሰፍታለች። አያና አስረኛ የልደት በዓሏ ሲቃረብ ሁልጊዜ ታስብ ነበር። \"በቂ የሆነ ልዩ ነገር የለኝም፣\" ብላ በእናቷ አመነች። ለሳምንታት የሚገባውን ጨርቅ ፈለገች፣ ግን ምንም ነገር ትክክል አልመሰለም። ከልደት በዓሏ በፊት ባለው ቀን፣ አስከፊ ማዕበል መጣ፣ ቤተሰቧም ሙሉ ሌሊት በመኖሪያ ቤታቸው ውስጥ አንድ ላይ እንዲሰበሰቡ አስገድዷቸዋል። የሁሉንም ፍርሃት ለማረጋጋት፣ ስለ ቤተሰብ ብርድልብሱ ላይ ስላለው እያንዳንዱ ካሬ ታሪኮችን ተካፈሉ፣ እያስታወሱ ሲሳቁና አንዳንድ ጊዜ ሲያለቅሱ። ጠዋት ላይ፣ ማዕበሉ አልፏል፣ በፊት አጥሩ ላይ አንድ ነገር ታየ-ድንቅ ቀስተደመና፣ ከዚህ በፊት ከማዩት በላይ ደምቆ። \"ይሄ ነው!\" አያና በጥንካሬ ተናገረች። በማዕበሉ ውስጥ የለበሰችውን ነጭ ሸሚዝ ወስዳ የነበራትን የቀለም ስብስብ ተጠቅማ የቀስተደመና ንድፍ በካሬ ላይ ፈጠረች። ወደ ብርድልብሱ ሲያከልው፣ ሁሉም ፍጹም መሆኑን ተስማሙ። \"ማዕበሉ ፍርሃትን አመጣ፣\" ብላ ገለጸች፣ \"ግን ቤተሰባችንን አንድ ላይ አበረው፣ ልክ እንደዚህ ብርድልብስ።\" አሁን፣ ጎብኚዎች ወደ ቤታቸው ሲመጡ፣ የቀስተደመናው ካሬ ሁልጊዜም የታሪኩ አካል ነበር-አብረው ሆነው ማንኛውንም ማዕበል ሊታገሱ እንደሚችሉ ማስታወሻ።",
+      type: StoryType.fairyTale,
+      topic: "Family",
+      dateCreated: DateTime.now().subtract(const Duration(days: 14)),
+      category: StoryCategory.family,
+      hasBeenViewed: false,
+    ));
+
+    // Helper methods that need to be defined before they're used
+    bool _containsAny(String text, List<String> keywords) {
+      for (final keyword in keywords) {
+        if (text.contains(keyword)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    StoryCategory _getCategoryFromTopic(String topic, StoryType type) {
+      // Convert topic to lowercase for case-insensitive matching
+      final lowercaseTopic = topic.toLowerCase();
+
+      // For stories
+      if (type == StoryType.fairyTale) {
+        if (_containsAny(lowercaseTopic,
+            ['animal', 'lion', 'elephant', 'monkey', 'bird', 'pet'])) {
+          return StoryCategory.animals;
+        } else if (_containsAny(lowercaseTopic, [
+          'nature',
+          'forest',
+          'mountain',
+          'river',
+          'ocean',
+          'plant',
+          'flower',
+          'tree'
+        ])) {
+          return StoryCategory.nature;
+        } else if (_containsAny(lowercaseTopic, [
+          'culture',
+          'tradition',
+          'heritage',
+          'festival',
+          'ceremony',
+          'ethiopia',
+          'amharic'
+        ])) {
+          return StoryCategory.culture;
+        } else if (_containsAny(lowercaseTopic, [
+          'history',
+          'past',
+          'ancient',
+          'king',
+          'queen',
+          'war',
+          'revolution'
+        ])) {
+          return StoryCategory.history;
+        } else if (_containsAny(lowercaseTopic, [
+          'family',
+          'mother',
+          'father',
+          'sister',
+          'brother',
+          'parents',
+          'home'
+        ])) {
+          return StoryCategory.family;
+        } else if (_containsAny(lowercaseTopic, [
+          'friend',
+          'friendship',
+          'together',
+          'companion',
+          'relationship'
+        ])) {
+          return StoryCategory.friendship;
+        }
+      }
+      // For riddles
+      else if (type == StoryType.riddle) {
+        if (_containsAny(lowercaseTopic, [
+          'wisdom',
+          'smart',
+          'clever',
+          'think',
+          'brain',
+          'puzzle',
+          'challenge'
+        ])) {
+          return StoryCategory.wisdom;
+        }
+      }
+
+      // Default category
+      return StoryCategory.userCreated;
+    }
+
+    List<Story> getStoriesByCategory(StoryCategory category) {
+      return _stories.where((story) => story.category == category).toList()
+        ..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+    }
+
+    List<Story> getFeaturedStories() {
+      return _stories.where((story) => story.isFeatured).toList()
+        ..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+    }
+
+    // Re-initialize the Gemini API with a simplified approach
+    void _reinitializeGemini() {
+      try {
+        final apiKey = dotenv.env['GEMINI_API_KEY'];
+        if (apiKey == null || apiKey.isEmpty) {
+          debugPrint('API key not found');
+          return;
+        }
+
+        _model = GenerativeModel(
+          model: 'gemini-pro',
+          apiKey: apiKey,
+        );
+        debugPrint('Re-initialized Gemini API with gemini-pro model');
+      } catch (e) {
+        debugPrint('Failed to re-initialize Gemini API: $e');
+      }
+    }
+
+    Story? _parseResponse({
+      required StoryType type,
+      required String topic,
+      required String response,
+    }) {
+      try {
+        final lines = response.split('\n');
+        String titleEn = '';
+        String titleAm = '';
+        String contentEn = '';
+        String contentAm = '';
+        String answerEn = '';
+        String answerAm = '';
+
+        bool isReadingContentEn = false;
+        bool isReadingContentAm = false;
+
+        for (final line in lines) {
+          if (line.startsWith('ENGLISH_TITLE:')) {
+            titleEn = line.substring('ENGLISH_TITLE:'.length).trim();
+          } else if (line.startsWith('AMHARIC_TITLE:')) {
+            titleAm = line.substring('AMHARIC_TITLE:'.length).trim();
+          } else if (line.startsWith('ENGLISH_CONTENT:')) {
+            isReadingContentEn = true;
+            contentEn = line.substring('ENGLISH_CONTENT:'.length).trim();
+          } else if (line.startsWith('AMHARIC_CONTENT:')) {
+            isReadingContentEn = false;
+            isReadingContentAm = true;
+            contentAm = line.substring('AMHARIC_CONTENT:'.length).trim();
+          } else if (line.startsWith('ENGLISH_ANSWER:')) {
+            isReadingContentAm = false;
+            answerEn = line.substring('ENGLISH_ANSWER:'.length).trim();
+          } else if (line.startsWith('AMHARIC_ANSWER:')) {
+            answerAm = line.substring('AMHARIC_ANSWER:'.length).trim();
+          } else if (isReadingContentEn) {
+            contentEn += '\n$line';
+          } else if (isReadingContentAm) {
+            contentAm += '\n$line';
+          }
+        }
+
+        // Clean up the content to remove any extra whitespace
+        titleEn = titleEn.trim();
+        titleAm = titleAm.trim();
+        contentEn = contentEn.trim();
+        contentAm = contentAm.trim();
+        answerEn = answerEn.trim();
+        answerAm = answerAm.trim();
+
+        // Make sure we got the required fields
+        if (titleEn.isEmpty ||
+            titleAm.isEmpty ||
+            contentEn.isEmpty ||
+            contentAm.isEmpty) {
+          return null;
+        }
+
+        // For riddles, make sure we have answers
+        if (type == StoryType.riddle &&
+            (answerEn.isEmpty || answerAm.isEmpty)) {
+          return null;
+        }
+
+        return Story(
+          titleEn: titleEn,
+          titleAm: titleAm,
+          contentEn: contentEn,
+          contentAm: contentAm,
+          type: type,
+          topic: topic,
+          answerEn: type == StoryType.riddle ? answerEn : null,
+          answerAm: type == StoryType.riddle ? answerAm : null,
+          dateCreated: DateTime.now(),
+          category: _getCategoryFromTopic(topic, type),
+          hasBeenViewed: false,
+        );
+      } catch (e) {
+        return null;
+      }
+    }
+
+    void removeStory(Story story) {
+      _stories.remove(story);
+      notifyListeners();
+    }
+
+    Future<Story?> generateStory({
+      required StoryType type,
+      required String topic,
+      required AgeGroup ageGroup,
+      required bool isAmharicInput,
+    }) async {
+      if (_dataSavingMode) {
+        _error = 'Story generation is disabled in data saving mode';
+        notifyListeners();
+        return null;
+      }
+
+      if (_model == null) {
+        await _initializeGemini();
+        if (_model == null) {
+          _error = 'Failed to initialize AI model. Please restart the app.';
+          notifyListeners();
+          return null;
+        }
+      }
+
+      _isLoading = true;
+      notifyListeners();
+
+      try {
+        // Determine the language for prompt generation
+        final bool isAmharic = isAmharicInput;
+        final String ageGroupText = ageGroup == AgeGroup.children
+            ? 'children (5-12 years old)'
+            : 'all ages';
+        final String contentTypeText =
+            type == StoryType.fairyTale ? 'fairy tale' : 'riddle';
+
+        // Create the prompt
+        final String prompt = '''
+Create a bilingual ${contentTypeText} in both English and Amharic about "${topic}".
+${isAmharic ? 'The topic was provided in Amharic, ensure you understand it correctly.' : ''}
+The ${contentTypeText} should be appropriate for ${ageGroupText}.
+${type == StoryType.fairyTale ? 'Make it entertaining and include a moral lesson.' : 'Make it clever and not too easy to solve.'}
+
+Respond in the following JSON format only:
+{
+  "titleEn": "English title of the ${contentTypeText}",
+  "titleAm": "Amharic title of the ${contentTypeText}",
+  "contentEn": "English content of the ${contentTypeText}",
+  "contentAm": "Amharic content of the ${contentTypeText}",
+  ${type == StoryType.riddle ? '"answerEn": "English answer to the riddle",\n  "answerAm": "Amharic answer to the riddle",' : ''}
+  "topic": "Topic of the ${contentTypeText}"
+}
+
+Ensure the Amharic text is high quality and natural.
+''';
+
+        final content = await _model!.generateContent([Content.text(prompt)]);
+        final response = content.text?.trim() ?? '';
+
+        // Parse the JSON response
+        try {
+          // Extract JSON object from the response
+          final jsonString =
+              response.replaceAll('```json', '').replaceAll('```', '').trim();
+
+          // Parse JSON using jsonDecode
+          final Map<String, dynamic> jsonData = jsonDecode(jsonString);
+
+          final StoryCategory category =
+              _getCategoryFromTopic(jsonData['topic'] ?? topic, type);
+
+          // Create the story object
+import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'dart:async'; // Add import for TimeoutException
+import 'dart:convert'; // Add import for JSON parsing
+import '../models/story.dart';
+
+class StoryProvider extends ChangeNotifier {
+  final List<Story> _stories = [];
+  bool _isLoading = false;
+  String _error = '';
+  bool _dataSavingMode = false;
+
+  List<Story> get stories =>
+      _stories..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+  bool get isLoading => _isLoading;
+  String get error => _error;
+  bool get dataSavingMode => _dataSavingMode;
+
+  set dataSavingMode(bool value) {
+    _dataSavingMode = value;
+    notifyListeners();
+  }
+
+  GenerativeModel? _model;
+
+  StoryProvider() {
+    _initializeGemini();
+    _addPredefinedStories();
+  }
+
+  // Add missing initialization of Gemini API
+  void _initializeGemini() async {
+    final apiKey = dotenv.env['GEMINI_API_KEY'];
+
+    // Debug print API key (masked)
+    if (apiKey != null && apiKey.length > 8) {
+      debugPrint(
+          'API Key loaded (showing first 8 chars): ${apiKey.substring(0, 8)}...');
+    } else {
+      debugPrint('API Key issue - using fallback method');
+      // Use a fallback key if somehow the main.dart key didn't register
+      dotenv.env['GEMINI_API_KEY'] = 'AIzaSyDv0foqdQQAmm76e02XlcT0fzGRO8xJDLo';
+    }
+
+    // Get the key again in case we just set the fallback
+    final finalApiKey = dotenv.env['GEMINI_API_KEY'];
+    if (finalApiKey == null || finalApiKey.isEmpty) {
+      _error = 'API key configuration issue, please restart the app';
+      return;
+    }
+
+    // Try creating the model with newest models first
+    final modelNames = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro'];
+
+    try {
+      // Use the best model for our use case
+      _model = GenerativeModel(
+        model: 'gemini-1.5-pro',
+        apiKey: finalApiKey,
+        generationConfig: GenerationConfig(
+          temperature: 0.2, // Lower temperature for more accurate content
+          topP: 0.8,
+          topK: 40,
+          maxOutputTokens: 2048, // Allow longer outputs
+        ),
+      );
+      debugPrint('Successfully initialized with model: gemini-1.5-pro');
+      return; // Exit once successful
+    } catch (e) {
+      debugPrint('Error with primary model: ${e.toString()}');
+      // Fall back to older models if needed
+      for (final modelName in modelNames) {
+        try {
+          debugPrint('Trying to initialize with fallback model: $modelName');
+          _model = GenerativeModel(
+            model: modelName,
+            apiKey: finalApiKey,
+          );
+          debugPrint('Successfully initialized with model: $modelName');
+          return; // Exit once successful
+        } catch (e) {
+          debugPrint('Error with model $modelName: ${e.toString()}');
+          // Continue to the next model name if this one fails
+        }
+      }
+    }
+
+    // If we get here, all model attempts failed
+    _error =
+        'Failed to initialize any Gemini model. Please check your API key.';
+  }
+
+  void _addPredefinedStories() {
+    // Famous fairy tales - Animals category
+    _stories.add(Story(
+      titleEn: "The Tortoise and the Hare",
+      titleAm: "ዓቧይና ጥንቸል",
+      contentEn:
+          "Once upon a time, a speedy hare boasted about how fast he could run. Tired of hearing him brag, the slow tortoise challenged him to a race. The hare quickly left the tortoise behind and, confident of winning, took a nap midway. When he awoke, he found that the tortoise, moving slowly but steadily, had already crossed the finish line. This tale teaches that persistence and determination often triumph over natural talent and overconfidence.",
+      contentAm:
+          "አንድ ጊዜ፣ ፈጣን ጥንቸል ስለፍጥነቱ ይኮራ ነበር። በትምክህቱ ደክሞት፣ ዝግተኛው ዓቧይ ወደ ሩጫ ፈታተነው። ጥንቸሉ በፍጥነት ዓቧዩን ጥሎ ሩቅ ሄደ፣ በማሸነፉ በመተማመን በመሃከል ለእንቅልፍ ተኛ። ሲነቃ፣ ዓቧዩ ዝግተኛ ሆኖ ነገር ግን በመጽናት እየተንቀሳቀሰ ጨረስ መስመሩን አልፎ አገኘው። ይህ ተረት የሚያስተምረው ጽናትና ቁርጠኝነት ብዙ ጊዜ ከተፈጥሮ ችሎታና ከራስ ግምት በላይ እንደሚያሸንፉ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 10)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Hyena and Lion fairy tale
+    _stories.add(Story(
+      titleEn: "The Hungry Hyena and the Lion King",
+      titleAm: "የተራበው ጅብና የአንበሶች ንጉሥ",
+      contentEn:
+          "A hungry hyena once schemed to steal food from the mighty lion king. \"Your Majesty,\" said the hyena with a bow, \"I've discovered a field full of fat gazelles just beyond your territory. I'm too small to catch them myself, but you could feast for days!\" The lion, flattered by the hyena's respect, followed him far from the pride. \"It's just over this hill,\" the hyena kept saying, leading the lion farther and farther until the lion was exhausted. When the lion collapsed from tiredness, the hyena snuck back to the pride and tried to steal the lions' fresh kill. But the lionesses had been watching and quickly chased the hyena away. When the lion king returned, he roared, \"Trust is earned, not given. And you, hyena, will never eat with lions again!\" The hyena skulked away, still hungry and now banned from the best hunting grounds. This tale teaches that deception might seem clever, but honesty builds lasting relationships.",
+      contentAm:
+          "አንድ ጊዜ የተራበ ጅብ ከኃይለኛው የአንበሶች ንጉሥ ምግብ ለመሰረቅ ዘዴ አሰበ። \"ጌታዬ፣\" አለ ጅቡ እየሰገደ፣ \"ከግዛትዎ ባሻገር በጣም የሰቡ የሚዳጋ ሎሌዎች ያሉበት ሜዳ አግኝቻለሁ። እኔ ለመያዝ በጣም ትንሽ ነኝ፣ ነገር ግን እርስዎ ለብዙ ቀናት መብላት ይችላሉ!\" አንበሳው፣ በጅቡ አክብሮት በመደሰት፣ ከወንድሞቹ ሩቅ ተከተለው። \"ከዚህ ኮረብታ ባሻገር ነው፣\" በማለት ጅቡ እየመራው የአንበሳውን ሃይል እስከሚዳክር ድረስ እያራቀው ወሰደው። አንበሳው በድካም ሲወድቅ፣ ጅቡ ወደ ቤተሰቦቹ ተመልሶ የአንበሶችን አዲስ ፍርስራሽ ለመሰረቅ ሞከረ። ግን እመበሎቹ እየተከታተሉ ነበርና ጅቡን በፍጥነት አባረሩት። የአንበሶች ንጉሥ ሲመለስ፣ \"እምነት የሚገኘው በመስራት እንጂ በመስጠት አይደለም። እና አንተ፣ ጅብ፣ ከአንበሶች ጋር ምግብ አትበላም!\" በማለት ጮኸ። ጅቡም፣ አሁንም ተርቦ እና ከሚሻለው የአደን ሥፍራ ተከልክሎ ተሸማቀቀ። ይህ ተረት የሚያስተምረው ማታለል አስተዋይ መስሎ ቢታይም እውነተኝነት ግን ሁልጊዜያዊ ግንኙነቶችን እንደሚገነባ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 5)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Clever Goat and Lion fairy tale
+    _stories.add(Story(
+      titleEn: "The Clever Goat and the Foolish Lion",
+      titleAm: "ብልህ ፍየልና ሞኝ አንበሳ",
+      contentEn:
+          "A hungry lion spotted a goat on a high, rocky ledge. \"Hello, friend goat!\" called the lion sweetly. \"Come down here where the grass is greener!\" The clever goat replied, \"Thank you for your concern, but I'm quite comfortable up here.\" \"But there's a wolf coming behind you!\" lied the lion. The goat smiled and said, \"How interesting! We don't have wolves in these mountains.\" Growing frustrated, the lion said, \"I've found a salt lick just down here!\" The goat laughed and replied, \"Dear lion, why are you so concerned with my dinner when you haven't had your own? If you're truly my friend, climb up and join me instead.\" The lion, unable to climb the steep rocks, left hungry and embarrassed. The goat called after him, \"Sometimes the best meal is the one you don't have to run from!\" This tale teaches that quick thinking can overcome brute strength, and it's wise to recognize deception.",
+      contentAm:
+          "አንድ የተራበ አንበሳ በከፍተኛ፣ ድንጋያማ ዳር ላይ ፍየል አየ። \"ሰላም፣ ጓደኛዬ ፍየል!\" ብሎ አንበሳው በጣፋጭ ተጣራ። \"ሣር አረንጓዴ ወደሆነበት እዚህ ውረድ!\" ብልሃተኛው ፍየል መለሰ፣ \"ስለጭንቀትህ አመሰግናለሁ፣ ግን እዚህ ላይ በጣም ምቹ ነኝ።\" \"ግን ከኋላህ ተኩላ እየመጣ ነው!\" ብሎ አንበሳው ዋሸ። ፍየሉ ሳቀና \"እንዴት አስደሳች ነገር ነው! በእነዚህ ተራሮች ላይ ተኩላዎች የሉንም\" አለ። እየተበሳጨ፣ አንበሳው \"እዚህ በታች ጨው አግኝቻለሁ!\" አለ። ፍየሉ ሳቀና መለሰ፣ \"ውድ አንበሳ፣ አንተ የራስህን ምግብ ሳትበላ ስለእኔ እራት ለምን እንደዚህ ትጨነቃለህ? እውነተኛ ጓደኛዬ ከሆንክ፣ እዚህ ወጥተህ ከእኔ ጋር ተቀላቀል።\" አንበሳው፣ ሹል ድንጋዮችን መውጣት ባለመቻሉ፣ ተርቦና ተሳፍሮ ሄደ። ፍየሉም \"አንዳንድ ጊዜ ምርጥ ምግብ ከእሱ መሮጥ የማያስፈልግህ ነው!\" ብሎ ጮኸበት። ይህ ተረት የሚያስተምረው ፈጣን አስተሳሰብ ጠንካራ ሃይልን ማሸነፍ እንደሚችል፣ እና ማታለልን መለየት ጥበብ መሆኑን ነው።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 7)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Ape and Lion's Challenge fairy tale
+    _stories.add(Story(
+      titleEn: "The Ape's Challenge to the Lion",
+      titleAm: "የዝንጀሮው ለአንበሳ የቀረበ ፈተና",
+      contentEn:
+          "The animals of the jungle held a contest to decide who was the most clever. The lion, as king, declared himself the judge. \"I will ask a question,\" he announced, \"and whoever answers correctly will win a week's supply of the finest fruits.\" All the animals gathered excitedly. \"What animal is the strongest and wisest in the jungle?\" asked the lion with a smug smile. The elephant trumpeted, \"You are, Your Majesty!\" The zebra bowed, \"The lion, of course!\" All the animals gave similar answers, except for the ape, who scratched his head thoughtfully. \"Well,\" said the ape, \"the strongest animal might be the elephant who can uproot trees. The wisest might be the owl who sees in darkness. The fastest is the cheetah who catches the swiftest prey.\" The lion growled, \"You did not answer my question!\" The ape replied calmly, \"I answered the true question of who has which quality. If you wanted praise instead of truth, perhaps that was not a fair contest question.\" The other animals gasped at the ape's boldness. The lion stared at the ape for a long moment, then surprised everyone by laughing. \"The ape wins the contest,\" declared the lion, \"for he alone had the courage to speak honestly to a king.\" From that day on, the lion consulted the ape on important jungle matters, and the animals learned that true wisdom includes both knowledge and courage.",
+      contentAm:
+          "የጫካው እንስሶች ማን እጅግ ብልህ እንደሆነ ለመወሰን ውድድር አዘጋጁ። አንድ ጥያቄ እጠይቃለሁ፣\" ብሎ አበሰረ፣ \"ትክክል የሚመልሰው ለአንድ ሳምንት የሚበቃ ምርጥ ፍራፍሬዎችን ያገኛል።\" እንስሶቹ ሁሉ በጉጉት ተሰበሰቡ። \"በዚህ ጫካ ውስጥ ምን አይነት እንስሳ ነው ጠንካራውና ብልሃተኛው?\" ብሎ አንበሳው በትዕቢት ሳቅ አለ። ዝሆኑ \"እርስዎ ነዎት፣ ጌታዬ!\" ሲል ጯሀ። ዔብራ ሰግዶ \"አንበሳው፣ በእርግጥ!\" አለ። ሁሉም እንስሶች ተመሳሳይ መልስ ሰጡ፣ ከዝንጀሮው በስተቀር፣ ራሱን በአስተዋይነት ያሻሻ ነበር። \"እንዲህ ነው፣\" አለ ዝንጀሮው፣ \"ጠንካራው እንስሳ ዛፎችን ሊነቅል የሚችለው ዝሆን ሊሆን ይችላል። ብልሃተኛው በጨለማ የሚያይ ቡፍ ሊሆን ይችላል። ፈጣኑ ደግሞ ፈጣን ሰለባን የሚይዘው ቀድዶ ነው።\" አንበሳው አገሰሰ፣ \"ጥያቄዬን አልመለስክም!\" ዝንጀሮው በሰከነ ሁኔታ መለሰ፣ \"ማን ምን ባህርይ እንዳለው ስለሚጠይቀው እውነተኛ ጥያቄ መልስ ሰጥቻለሁ። ከእውነት ይልቅ ሞገስን ከፈለግክ፣ ምናልባት ያ ፍትሃዊ የውድድር ጥያቄ አልነበረም።\" ሌሎቹ እንስሶች በዝንጀሮው ድፍረት ለቅሶ አቆሙ። አንበሳው ለረጅም ጊዜ ዝንጀሮውን ተመለከተው፣ ከዚያም ሁሉንም በማስገረም ሳቀ። \"ዝንጀሮው ውድድሩን አሸንፏል፣\" ብሎ አበሰረ አንበሳው፣ \"እሱ ብቻ ነው ለንጉሥ በእውነት ለመናገር ድፍረት የነበረው።\" ከዚያች ቀን ጀምሮ፣ አንበሳው ዝንጀሮውን በጫካ ጉዳዮች ላይ ይጠይቀው ነበር፣ እንስሶቹም እውነተኛ ጥበብ እውቀትንና ድፍረትን አንድ ላይ እንደሚይዝ ተማሩ።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 6)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Add the Fish Out of Water fairy tale
+    _stories.add(Story(
+      titleEn: "The Fish Who Wanted to Fly",
+      titleAm: "መብረር የፈለገው ዓሣ",
+      contentEn:
+          "In a crystal-clear lake lived a small, brightly colored fish who watched birds soaring overhead every day. \"How wonderful it must be to fly!\" the fish would sigh. A friendly heron who often visited the lake noticed the sad fish. \"Why so glum?\" asked the heron. \"I wish I could fly like you,\" replied the fish. \"The water is so limiting.\" The heron tilted his head. \"But can you show me the underwater caves?\" The fish nodded. \"Can you sleep nestled in soft lake plants?\" Another nod. \"Can you dart through water faster than I can blink?\" The fish demonstrated proudly. The heron smiled. \"You see, I cannot do any of those things. Every time I catch a fish, I must return to land. I can only visit your world briefly.\" The fish thought about this. Later, a careless kingfisher scooped up the fish and accidentally dropped him on a lily pad. Gasping for breath, the fish realized how beautiful his water world was, and how perfectly suited he was for it. A friendly frog helped flip him back into the lake, where he swam happily, no longer envying the birds but appreciating his own special abilities. Sometimes we spend so much time wishing for what others have that we fail to appreciate our own unique gifts.",
+      contentAm:
+          "በጣም ንጹህ ሐይቅ ውስጥ አንድ ትንሽ፣ ቀለም የሞላው ዓሣ በየቀኑ ወፎች ከሰማይ በላይ ሲበሩ ይመለከት ነበር። \"እንዴት አስደናቂ ነገር ነው መብረር!\" ብሎ ዓሣው ይቆዝም ነበር። ሐይቁን በየጊዜው የሚጎበኝ ወዳጅ ሰጋን ኩሩሩ የተከፋውን ዓሣ አስተዋለ። \"ለምን እንደዚህ አዝነሃል?\" ብሎ ጠየቀ ሰጋን ኩሩሩ። \"እንደ አንተ መብረር እችል ዘንድ እመኝ ነበር፣\" ብሎ መለሰ ዓሣው። \"ውሃው በጣም ውስን ነው።\" ሰጋን ኩሩሩ ራሱን አዘነበለ። \"ግን የውሃ ውስጥ ዋሻዎችን ልታሳየኝ ትችላለህ?\" ዓሣው ጭንቅላቱን አነቀነቀ። \"በለሰላሳ የሐይቅ ተክሎች መካከል መተኛት ትችላለህ?\" ሌላ ነቀነቃ። \"ዓይኔን ከማያሟሙትበት ፍጥነት በላይ በውሃ ውስጥ መንሽራተት ትችላለህ?\" ዓሣው በኩራት አሳየው። ሰጋን ኩሩሩ ፈገግ አለ። \"እነዚህን ነገሮች አንዱንም ማድረግ እንደማልችል ታያለህ። ዓሣ በያዝኩ ቁጥር ወደ ምድር መመለስ አለብኝ። ዓለምህን በአጭር ጊዜ ብቻ ነው የምጎበኘው።\" ዓሣው ስለዚህ አሰበ። በኋላ፣ ጉዳት የሌለው ነባሪት ሰጋን ዓሣውን ቆልቶ በድንገት በዛንባቅ ላይ ጣለው። ለአየር እየተቸገረ ዓሣው የውሃ ዓለሙ እንዴት ውብ እንደሆነ፣ እና እሱም እንዴት ለዚያ ፍጹም ተስማሚ እንደሆነ ተገነዘበ። ጓደኛ እንቁራሪት ዓሣውን ወደ ሐይቁ እንዲመለስ በመገልበጥ ረዳው፣ እዚያም ጉዞውን በደስታ ዋኘ፣ ከዚያ በኋላ ወፎችን ሳይቀና ነገር ግን የራሱን ልዩ ችሎታዎች እያደነቀ። አንዳንድ ጊዜ ሌሎች ባላቸው ነገሮች ለመመኘት ብዙ ጊዜ እናጠፋለን የራሳችንን ልዩ ስጦታዎች ሳናደንቅ።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 4)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Lion and the Mouse",
+      titleAm: "አንበሳና አይጥ",
+      contentEn:
+          "A mighty lion once caught a tiny mouse. As the lion was about to eat him, the mouse begged, \"Please spare me, and someday I'll help you.\" The lion laughed at the idea that such a small creature could ever help him but let the mouse go. Later, hunters trapped the lion in a net. The mouse, hearing the lion's roars, came and gnawed through the ropes, freeing him. \"You laughed when I said I would repay you,\" said the mouse. \"Now you see that even a little mouse can help a mighty lion.\" This teaches us that kindness is never wasted, and even the smallest friends can be valuable allies.",
+      contentAm:
+          "አንድ ጊዜ ኃይለኛ አንበሳ ትንሽ አይጥ ያዘ። አንበሳው ሊበላው ሲል፣ አይጡ \"እባክህ ተወኝ፣ አንድ ቀን እረዳሃለሁ\" ብሎ ለመነው። አንበሳው እንደዚህ ያለ ትንሽ ፍጡር ሊረዳው እንደሚችል ሲገረም ሳቀ ነገር ግን አይጡን ለቀቀው። በኋላ፣ አዳኞች አንበሳውን በረቀቀ መረብ ውስጥ ያዙት። አይጡም የአንበሳውን ጩኸት ሰምቶ መጣና ገመዶቹን ቆርጦ አንበሳውን ነፃ አወጣው። \"ልመልስልህ እችላለሁ ባልኩ ጊዜ ሳቅህብኝ፣\" አለው አይጡ። \"አሁን እንደምታይ ትንሽ አይጥም ቢሆን ኃይለኛውን አንበሳ ሊረዳው ይችላል።\" ይህ የሚያስተምረን ደግነትና የውስጥ ውበት ከጭካኔ በላይ እንደሚያሸንፍ ያሳያል።",
+      type: StoryType.fairyTale,
+      topic: "Animals",
+      dateCreated: DateTime.now().subtract(const Duration(days: 45)),
+      category: StoryCategory.animals,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - Culture category
+    _stories.add(Story(
+      titleEn: "Cinderella",
+      titleAm: "ሲንደሬላ",
+      contentEn:
+          "Cinderella lived with her cruel stepmother and stepsisters who made her work as a servant. When the king held a ball, her fairy godmother appeared and transformed her rags into a beautiful gown and gave her glass slippers, turning a pumpkin into a carriage. At the ball, the prince fell in love with her, but at midnight everything returned to normal, and she fled, leaving behind one glass slipper. The prince searched the kingdom for the girl whose foot fit the slipper. When it fit Cinderella perfectly, he knew she was his true love. They married and lived happily ever after, showing that kindness and inner beauty triumph over cruelty.",
+      contentAm:
+          "ሲንደሬላ ከጨካኝ እንጀራ እናቷና እህቶቿ ጋር ትኖር ነበር፤ እነሱም እንደ አገልጋይ እንድትሰራ አደረጓት። ንጉሱ ሲያደርግ በዓል ላይ፣ የዕድል እናቷ ተገለጠችና ጨርቆችዋን ወደ ውብ ቀሚስ ቀየረች እንዲሁም የብርጭቆ ጫማዎችን ሰጠቻት፣ ዱባን ወደ ረዥም ተሽከርካሪ ቀይራ። በዓሉ ላይ፣ ልዑል ተወላት፣ ነገር ግን በእኩለ ሌሊት ሁሉም ነገር ወደ ነበረበት ተመለሰ፣ ስለዚህ እሷም አንድ የብርጭቆ ጫማ ትታ ኮበለለች። ልዑሉም ጫማው የሚስማማት ልጃገረድ ለማግኘት መንግስቱን ሁሉ ፈለገ። ጫማው ሲንደሬላን በትክክል ሲስማማት፣ እሷ እውነተኛ ፍቅሩ እንደሆነች ተገነዘበ። ተጋቡና በደስታ ኖሩ፣ ይህም ደግነትና የውስጥ ውበት ከጭካኔ በላይ እንደሚያሸንፍ ያሳያል።",
+      type: StoryType.fairyTale,
+      topic: "Magic",
+      dateCreated: DateTime.now().subtract(const Duration(days: 25)),
+      category: StoryCategory.culture,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "Beauty and the Beast",
+      titleAm: "ውበትና አውሬው",
+      contentEn:
+          "A merchant picked a rose for his daughter Beauty from a beast's garden. The angry beast demanded the merchant's life in return, but allowed him to go home to say goodbye. Beauty insisted on taking her father's place. At the beast's castle, she discovered he was kind despite his appearance. Every night, the beast asked Beauty to marry him, and she refused. When Beauty learned her father was ill, the beast let her visit him. After staying longer than promised, she returned to find the beast dying of a broken heart. Her tears of love fell on him, breaking the spell, and he transformed into a handsome prince. They lived happily ever after, showing that true beauty lies within.",
+      contentAm:
+          "አንድ ነጋዴ ለልጁ ውበት ከአውሬው ጓሮ ውስጥ አበባ ቆረጠ። የተናደደው አውሬ በመቀጣት ነጋዴውን ሕይወት እንዲያጣ ጠየቀ, ነገር ግን ወደ ቤት ሄዶ ለመሰናበት ፈቀደለት። ውበት የአባቷን ቦታ ለመውሰድ አስቀድማ አስጠየቀች። በአውሬው ግንብ ውስጥ ሆና፣ ከመልኩ ባሻገር ደግ እንደሆነ ተመለከተች። በየምሽቱ አውሬው ውበትን እንድታገባው ይጠይቃት ነበር፣ እሷም ትከለክለው ነበር። ውበት አባቷ ታሞ እንደሆነ ስትረዳ፣ አውሬው ሄዳ እንድትጠይቀው ፈቀደላት። ከቃሏ በላይ ከቆየች በኋላ፣ ተመልሳ አውሬውን ልቡ ተሰብሮ ሲሞት አገኘችው። የፍቅሯ እንባዎች በእሱ ላይ ወድቀው፣ ድግምት ሰባሩ፣ አውሬውም ወደ ውብ ልዑል ተቀየረ። ለዘላለም በደስታ ኖሩ፣ ይህም እውነተኛ ውበት በውስጡ እንደሚገኝ ያሳያል።",
+      type: StoryType.fairyTale,
+      topic: "Magic",
+      dateCreated: DateTime.now().subtract(const Duration(days: 30)),
+      category: StoryCategory.culture,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - Nature category
+    _stories.add(Story(
+      titleEn: "Jack and the Beanstalk",
+      titleAm: "ጃክና የባቄላ ዛፍ",
+      contentEn:
+          "Jack traded his cow for magic beans, which his mother angrily threw outside. Overnight, the beans grew into a giant beanstalk reaching the clouds. Jack climbed it and found a castle inhabited by a giant. While the giant slept, Jack stole a bag of gold coins. On later visits, he took a goose that laid golden eggs and a magical singing harp. The angry giant chased Jack down the beanstalk, but Jack cut it down, causing the giant to fall to his death. Jack and his mother lived comfortably with their newfound wealth. This tale teaches about taking risks, seizing opportunities, and sometimes, the need to face one's fears.",
+      contentAm:
+          "ጃክ ላሟን በድንቅ ባቄላዎች ለወጠ፣ እናቱም በንዴት ወደ ውጭ ጣለቻቸው። በሌሊቱ፣ ባቄላዎቹ ወደ ደመናዎች ድረስ የሚደርስ ግዙፍ ዛፍ ሆነው አደጉ። ጃክ ወጥቶ በደመናዎች ላይ ያለ ግንብ አገኘ፤ በዚህም አንድ ዘላን ይኖር ነበር። ዘላኑ እንቅልፍ ላይ እያለ፣ ጃክ ከረጢት የሙሉ የወርቅ ሳንቲሞችን ሰረቀ። በሌላ ጊዜም፣ የወርቅ እንቁላል የምታጠምድ ዝይ እና ድንቅ የሙዚቃ መሳሪያ ሃርፕ ወሰደ። የተቆጣው ዘላን ጃክን በዛፉ ላይ አሳደደው፣ ነገር ግን ጃክ ዛፉን ቆረጠው፣ ዘላኑም ወድቆ ሞተ። ጃክና እናቱ በአዲስ ሃብታቸው በምቾት ኖሩ። ይህ ተረት ስለ ስጋቶች መውሰድ፣ አጋጣሚዎችን መጠቀም እና አንዳንድ ጊዜ ፍርሃቶቻችንን መጋፈጥ እንዳለብን ነው።",
+      type: StoryType.fairyTale,
+      topic: "Magic",
+      dateCreated: DateTime.now().subtract(const Duration(days: 15)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "Hansel and Gretel",
+      titleAm: "ሃንሴልና ግሬቴል",
+      contentEn:
+          "During a famine, a woodcutter's wife convinced him to abandon his children, Hansel and Gretel, in the forest. Overhearing this plan, Hansel collected pebbles and left a trail to follow home. When abandoned again, they used breadcrumbs, but birds ate them. Lost in the forest, they found a house made of gingerbread and sweets. An old witch lived there who trapped children to eat them. She imprisoned Hansel, planning to fatten him up, while Gretel worked as a servant. When the witch prepared the oven to cook Hansel, clever Gretel pushed her into it instead. The children found the witch's treasure, followed a white bird home, and reunited with their remorseful father. Their stepmother had died, and they lived happily together, having learned to rely on their wits and each other to overcome evil.",
+      contentAm:
+          "በአንድ ረሃብ ወቅት፣ የአንድ እንጨት ቆራጭ ሚስት ልጆቻቸውን ሃንሴልና ግሬቴልን በጫካ ውስጥ እንዲተዉ አሳመነችው። ይህንን እቅድ ሲሰሙ፣ ሃንሴል ጠጠሮችን ሰብስቦ ወደ ቤት መንገድ አስቀመጠ። ሁለተኛ ሲተዉዋቸው፣ የዳቦ ፍርፋሪዎችን ተጠቀሙ፣ ነገር ግን ወፎች በሉዋቸው። በጫካው ውስጥ ጠፍተው፣ የዳቦና ጣፋጭ ነገሮች የተሰራ ቤት አገኙ። አንድ አሮጊት አስማተኛ ልጆችን ለመብላት የምታጠምድ ትኖር ነበር፣ ሃንሴልን አስራ በማስወፈር ግሬቴልን እንደ አገልጋይ አሰራች። አስማተኛዋ ሃንሴልን ለመጋገር ምድጃ ስታዘጋጅ፣ ብልህዋ ግሬቴል ወደ ምድጃው እሷን ገፋች። ልጆቹም የአስማተኛዋን ሀብት አግኝተው፣ አንድ ነጭ ወፍን ተከትለው ወደ ቤት ደረሱ፣ ከተጸጸተው አባታቸው ጋርም ተዋሃዱ። እንጀራ እናታቸው ምትታ ነበር፣ እነሱም ጭራቅን ለማሸነፍ ብልሃትና አንድ ላይ መተጋገዝ እንዳለባቸው ተምረው በደስታ አብረው ኖሩ።",
+      type: StoryType.fairyTale,
+      topic: "Survival",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - History category
+    _stories.add(Story(
+      titleEn: "The Emperor's New Clothes",
+      titleAm: "የንጉሱ አዲስ ልብሶች",
+      contentEn:
+          "A vain emperor who cared only about his appearance was tricked by two weavers who claimed to make clothes that were invisible to anyone who was unfit for their position. The emperor and his court pretended to see the clothes, fearing they would be considered foolish. Only a child had the courage to point out that the emperor was wearing nothing at all. This story teaches us about the importance of speaking truth to power and the dangers of vanity.",
+      contentAm:
+          "በመልክ ብቻ የሚጨክን ንጉሥ በሁለት ጥፋት አዛዦች ተተንኮል ነበረው። እነሱ የሚያድር ልብሶች የሚፈጥሩ እንደሆኑ አስመስለው፣ እነዚህ ልብሶች ለሥልጣናቸው የማይሆኑ ሰዎች የማይታዩ እንደሆኑ አሉ። ንጉሥ እና ባለሥልጣናቱ ደደብ እንደሚባሉ ፍርሃት ልብሶቹን የሚያዩ እንደሆኑ አድርገው አስመስሉ። ብቸኛው ልጅ ብቻ ንጉሡ ምንም ልብስ እንዳለበት የማይታይ እንደሆነ የሚናገር ድፍረት ነበረው። ይህ ታሪክ እውነትን ለሥልጣን መናገር እና የክብር ፍርሃት አደጋ እንደሚረዳ አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 30)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Legend of Lalibela",
+      titleAm: "የላሊበላ ተልዕኮ",
+      contentEn:
+          "In the heart of Ethiopia, there was a prince named Lalibela who had a vision of building magnificent churches carved from solid rock. Guided by divine inspiration and helped by angels, he created eleven churches that still stand today. Each church tells a story of faith, determination, and the power of belief. The churches became a symbol of Ethiopian Christianity and a testament to human ingenuity and devotion.",
+      contentAm:
+          "በኢትዮጵያ ልብ፣ ከጠንካራ ድንጋይ የተፈጠሩ ድንቅ ቤተ ክርስቲያናት የሚገነቡ ላሊበላ የተባለ ንጉሥ ነበረ። በእግዚአብሄር መመሪያ እና በመላእክት እርዳታ አስራት ቤተ ክርስቲያናት ፈጠረ፣ እስካሁን ድረስ የሚቆሙ ናቸው። እያንዳንዱ ቤተ ክርስቲያን የእምነት፣ የመወሰን እና የማመን ኃይል ታሪክ ይናገራል። ቤተ ክርስቲያናቱ የኢትዮጵያ ክርስትና ምልክት እና የሰው ተስፋ እና የተዋህዶ ማስረጃ ሆነው ቆዩ።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 28)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise King and the Golden Palace",
+      titleAm: "ጥበበ ንጉሥ እና የወርቅ ቤተ መንግሥት",
+      contentEn:
+          "There was once a wise king who built a magnificent golden palace. Instead of keeping it for himself, he opened it to his people, using it as a place for learning and sharing. The palace became a center of wisdom where people from all walks of life could gather to share knowledge and ideas. The king's generosity and wisdom made his kingdom prosperous and his people happy.",
+      contentAm:
+          "አንድ ጥበበ ንጉሥ ድንቅ የወርቅ ቤተ መንግሥት ነበረው። ለራሱ ከመጠበቅ ይልቅ፣ ለሕዝቡ ከመክፈት ይልቅ፣ እንደ መማሪያ እና የመጋራት ቦታ አድርጎት ተጠቀመ። ቤተ መንግሥቱ የጥበብ መሃል ሆነ፣ ሁሉም የሕይወት ዘርፍ የሆኑ ሰዎች እውቀት እና ሀሳቦች እንዲጋራጡ የሚገኙበት ቦታ ሆነ። የንጉሡ ተዋሕዶ እና ጥበብ መንግሥቱን ተስፋ አድርገው እና ሕዝቡን ደስ አድርገው አደረጉ።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 25)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Clever Judge and the Three Brothers",
+      titleAm: "ጥበበ ዳኛ እና ሦስቱ ወንድሞች",
+      contentEn:
+          "Three brothers inherited a piece of land from their father. They couldn't agree on how to divide it, so they went to a wise judge. The judge gave them a riddle: 'How can you divide the land so that each brother gets an equal share, and the land remains whole?' The brothers thought and thought, until the youngest brother had an idea. They could farm the land together and share the harvest equally. The judge praised their solution, showing that working together is often better than dividing things apart.",
+      contentAm:
+          "ሦስት ወንድሞች ከአባታቸው አንድ የመሬት ቦታ ወረሱ። እንዴት እንደሚካፈሉት ላይ መስማማት አልቻሉም፣ ስለዚህ ወደ ጥበበ ዳኛ ሄዱ። ዳኛው እንዲህ የሚል እንቅፋት ሰጣቸው፣ 'መሬቱን እንዴት እንደሚካፈሉት እያንዳንዱ ወንድም እኩል ድርሻ እንደሚያገኝ እና መሬቱ ሙሉ እንደሚቆይ?' ወንድሞቹ እስኪያውቁ ድረስ አሰቡ፣ በመጨረሻም ታናሹ ወንድም ሀሳብ አመጣ። መሬቱን በጋራ እንዲያርሱ እና ምርቱን በእኩል እንዲጋራጡ ተስማሙ። ዳኛው መፍትሄያቸውን አመስግኗል፣ አንድ ላይ መስራት ነገሮችን መክፈል ከመክፈል ይልቅ ብዙ ጊዜ የተሻለ እንደሆነ አሳየ።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 22)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Pied Piper of Hamelin",
+      titleAm: "የሃሜሊን የቀለም አዛዥ",
+      contentEn:
+          "In the town of Hamelin, there was a terrible rat problem. A mysterious piper appeared and offered to rid the town of rats in exchange for payment. The piper played his magical flute, and all the rats followed him out of town. When the town refused to pay him, he played his flute again, and this time all the children followed him out of town. This story teaches us about the importance of keeping promises and the consequences of breaking them.",
+      contentAm:
+          "በሃሜሊን ከተማ፣ በጣም የአንበጣ ችግር ነበረ። በሚስጥር የተለየ አዛዥ ተገልብጦ አንበጦችን ከከተማው ለማውጣት ክፍያ ተስፋ አደረገ። አዛዥው ድንቅ አውራጃውን አጫወተ፣ እና ሁሉም አንበጦች ከከተማው ወጡ። ከተማው ክፍያውን መስጠት በመቀዛቀዝ፣ አዛዥው አውራጃውን እንደገና አጫወተ፣ እና በዚህ ጊዜ ሁሉም ልጆች ከከተማው ወጡ። ይህ ታሪክ ተስፋ መጠበቅ እና የተስፋ መስረቅ ውጤቶች እንደሚረዳ አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 20)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Great Wall of China",
+      titleAm: "የቻይና ታላቅ ግድግዳ",
+      contentEn:
+          "The Great Wall of China was built over many centuries to protect the Chinese empire from invaders. It's said that the wall is so long it could wrap around the Earth several times. The wall was built by millions of workers, including soldiers, peasants, and prisoners. While it's a symbol of human achievement, it also tells the story of the sacrifices made by those who built it. The wall stands as a reminder that great achievements often come at great cost.",
+      contentAm:
+          "የቻይና ታላቅ ግድግዳ በብዙ መቶ ዓመታት ውስጥ የቻይና መንግሥት ከወራሪዎች ለመጠበቅ ተገንብቷል። ግድግዳው በጣም ረጅም እንደሆነ እና በምድር ዙሪያ ብዙ ጊዜ እንደሚያዞር ይባላል። ግድግዳው በተለያዩ ሰራተኞች ተገንብቷል፣ እንደ ወታደሮች፣ አገር አባቶች እና እስረኞች ያሉ ብዙ ሰዎች ተሳትፈዋል። የሰው ስራ ምልክት ቢሆንም፣ የገነባቸው የተደረጉ መስዋዕትነቶች ታሪክ እንዲሁ ይናገራል። ግድግዳው ታላቅ ስራዎች ብዙ ጊዜ ታላቅ ዋጋ እንደሚያስከፍሉ አስታውሻ አድርገን ቆሟል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 18)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Library of Alexandria",
+      titleAm: "የእስክንድርያ ቤተ መጻሕፍት",
+      contentEn:
+          "The Library of Alexandria was one of the largest and most significant libraries of the ancient world. It housed hundreds of thousands of scrolls containing knowledge from many civilizations. Scholars from all over the world came to study there. The library was a symbol of human thirst for knowledge and the importance of preserving information. While the library was eventually destroyed, its spirit lives on in modern libraries and the internet, reminding us of the value of sharing knowledge.",
+      contentAm:
+          "የእስክንድርያ ቤተ መጻሕፍት በጥንታዊ ዓለም ከታላላቅ እና ከተስፋ ያለው ቤተ መጻሕፍት አንዱ ነበር። በብዙ ባህሎች ውስጥ ያለው እውቀት የያዘ በመቶ ሺዎች ጥቅል ይዟል። ከዓለም ዙሪያ የመጡ ምሁራን በዚያ እውቀት እንዲያጥኑ ይመጡ ነበር። ቤተ መጻሕፍቱ የሰው ለእውቀት ያለው ጥማት እና መረጃ መጠበቅ አስፈላጊነት ምልክት ነበር። ቤተ መጻሕፍቱ በመጨረሻ ቢጠፋም፣ መንፈሱ በዘመናዊ ቤተ መጻሕፍት እና በበይነመረጃ ውስጥ ተስፋ አድርገው ቆይተዋል፣ እውቀት መጋራት ዋጋ እንደሚረዳ አስታውሻ አድርገን።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 15)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Silk Road",
+      titleAm: "የሐር መንገድ",
+      contentEn:
+          "The Silk Road was an ancient network of trade routes connecting China to the Mediterranean. It wasn't just a road for trading silk, but a path for sharing ideas, cultures, and technologies. Merchants, scholars, and travelers from different civilizations met along this route, creating a rich exchange of knowledge and traditions. The Silk Road shows us how connecting different parts of the world can lead to great cultural and technological advances.",
+      contentAm:
+          "የሐር መንገድ ቻይናን ከመስከረም ባሕር ጋር የሚያገናኝ ጥንታዊ የንግድ መንገዶች አውታረ መረጃ ነበር። ሐር ብቻ ሳይሆን፣ ሀሳቦች፣ ባህሎች እና ቴክኖሎጂዎች የሚጋራጡት መንገድ ነበር። ነጋዴዎች፣ ምሁራን እና ተጓዦች ከተለያዩ ባህሎች በዚህ መንገድ ላይ ተገናኝተው ባህላዊ እና ቴክኖሎጂያዊ እውቀት የተስፋ ልዩ መልዕክት ፈጠሩ። የሐር መንገድ የዓለም የተለያዩ ክፍሎች መገናኛ ታላቅ ባህላዊ እና ቴክኖሎጂያዊ እድገት እንደሚያስከትል አሳየናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The First Emperor",
+      titleAm: "የመጀመሪያው ንጉሥ",
+      contentEn:
+          "Qin Shi Huang was the first emperor to unite China. He standardized writing, currency, and measurements across his empire. He also built the famous Terracotta Army to protect him in the afterlife. While his achievements were great, his rule was also marked by strict laws and forced labor. His story teaches us about the balance between progress and human rights, and how power can be used for both good and bad.",
+      contentAm:
+          "ቺን ሺ ሁዋንግ ቻይናን የመጀመሪያው ንጉሥ ነበር። በመንግሥቱ ውስጥ መፃፍት፣ ገንዘብ እና መለኪያዎች እንዲተስማሙ አድርገው። በተጨማሪም፣ በሞት በኋላ እንዲጠብቅው የተሰራ የተራ የተሰራ የጦር ኃይል አገነባ። ስራዎቹ ታላላቅ ቢሆኑም፣ መንግሥቱ በጥብቅ ሕጎች እና በግድ የተደረገ የጉልበት ሥራ ተለይቶ ይታወቅ ነበር። ታሪኩ በእድገት እና በሰው መብቶች መካከል ያለው ሚዛን እና ኃይል ለመልካም እና ለክፉ እንዴት እንደሚያገለግል አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 10)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Renaissance",
+      titleAm: "የመልሶ መፈጠር",
+      contentEn:
+          "The Renaissance was a period of great cultural and intellectual change in Europe. It was a time when people rediscovered ancient knowledge and created new ideas in art, science, and literature. Famous figures like Leonardo da Vinci and Michelangelo showed that human creativity and curiosity could achieve amazing things. The Renaissance teaches us about the power of learning from the past while creating new possibilities for the future.",
+      contentAm:
+          "መልሶ መፈጠር በአውሮፓ ውስጥ ታላቅ የባህል እና የአእምሮ ለውጥ የነበረ ወቅት ነበር። ሰዎች ጥንታዊ እውቀት እንደገና የሚያገኙ እና በኪነት፣ በሳይንስ እና በፍጥረት ውስጥ አዲስ ሀሳቦች የሚፈጥሩ ወቅት ነበር። እንደ ሌዮናርዶ ዳ ቪንቺ እና ሚኬላንጄሎ ያሉ ታዋቂ ሰዎች የሰው ፍጥረት እና ጥያቄ ድንቅ ነገሮችን እንደሚያስመጣ አሳዩ። መልሶ መፈጠር ከቀድሞው የመማር እና ለወደፊቱ አዲስ ዕድሎች የመፍጠር ኃይል እንደሚረዳ አስተምረናል።",
+      type: StoryType.fairyTale,
+      topic: "History",
+      dateCreated: DateTime.now().subtract(const Duration(days: 8)),
+      category: StoryCategory.history,
+      hasBeenViewed: false,
+    ));
+
+    // Famous fairy tales - Wisdom category
+    _stories.add(Story(
+      titleEn: "The Wise Old Owl",
+      titleAm: "የጥበበኛው አሮጌ ጉጉት",
+      contentEn:
+          "In a forest, there lived a wise old owl who was known for giving good advice. Animals would come to him with their problems, and he would listen carefully before giving his wisdom. One day, a young rabbit came to him, worried about making friends. The owl told him that true friendship comes from being kind and listening to others. The rabbit followed this advice and soon had many friends.",
+      contentAm:
+          "በጫካ ውስጥ፣ ጥሩ ምክር በመስጠት የታወቀ ጥበበኛ አሮጌ ጉጉት ይኖር ነበር። እንስሳት ችግሮቻቸውን ይያዙት ነበር፣ እና ጥበቡን ከመስጠቱ በፊት በጥንቃቄ ይዳምጥ ነበር። አንድ ቀን፣ አንድ ታናሽ ጥንቸል ጓደኞች መፍጠር በተጨናነቀ መጣ። ጉጉቱ እውነተኛ ጓደኝነት ከደጋፊ መሆን እና ሌሎች ሰዎችን መስማት እንደሚመጣ ነግሮት። ጥንቸሉ ይህን ምክር ተከተለ፣ እና በቅርብ ጊዜ ብዙ ጓደኞች አገኘ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 30)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Ant",
+      titleAm: "የጥበበኛው ጨንፋጣ",
+      contentEn:
+          "A wise ant lived in a colony where everyone worked hard to prepare for winter. One day, a grasshopper who had spent the summer playing came to the ant for help. The ant shared some of his food but also taught the grasshopper the importance of planning ahead. The grasshopper learned that wisdom means thinking about the future while enjoying the present.",
+      contentAm:
+          "አንድ ጥበበኛ ጨንፋጣ ሁሉም ሰው ለክረምት እንዲያዘጋጅ በጣም የሚሰራ በኮሎኒ ውስጥ ይኖር ነበር። አንድ ቀን፣ ክረምቱን በመጫወት የሳምንቱን የተለያዩ እንስሳት ይጠቀማሉ። አንድ ቀን፣ አንድ ጨንፋጣ እና አንድ አንበሳ አንድ ላይ የመግጠም ውድድር እንዲያደርጉ ወሰኑ። ጨንፋጣው በጣም ፈጣን ነበር፣ ነገር ግን አንበሳው በጣም ጠንካራ ነበር። ጨንፋጣው በጥበብ እና በፍጥነት ውድድሩን አሸነፈ፣ እና አንበሳው ጥንካሬ ብቻ በቂ እንዳልሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 28)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Turtle",
+      titleAm: "የጥበበኛው እስፌ",
+      contentEn:
+          "A wise turtle lived by a river and was known for his patience and wisdom. One day, a young rabbit came to him, frustrated because he couldn't learn to swim. The turtle taught the rabbit that learning takes time and patience, and that everyone learns at their own pace. The rabbit learned that wisdom often comes from being patient and persistent.",
+      contentAm:
+          "አንድ ጥበበኛ እስፌ በወንዝ አጠገብ ይኖር ነበር እና በትዕግስት እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ጥንቸል መዋኘት ስለማይችል በተበደለ መልኩ መጣ። እስፌው መማር ጊዜ እና ትዕግስት እንደሚያስፈልግ እና እያንዳንዱ ሰው በራሱ ፍጥነት እንደሚማር አስተማረት። ጥንቸሉ ጥበብ ብዙውን ጊዜ ከትዕግስት እና ከተስፋ በቀር እንደማይመጣ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 25)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Fox",
+      titleAm: "የጥበበኛው ቀበሮ",
+      contentEn:
+          "A wise fox lived in the forest and was known for solving problems. One day, two animals came to him arguing about who was stronger. The fox set up a challenge that showed them that true strength comes from working together. They learned that wisdom often means finding ways to bring people together rather than apart.",
+      contentAm:
+          "አንድ ጥበበኛ ቀበሮ በጫካ ውስጥ ይኖር ነበር እና ችግሮችን በመፍታት ይታወቅ ነበር። አንድ ቀን፣ ሁለት እንስሳት እርስ በርስ የትኛው ጠንካራ እንደሆነ በመከራከር መጡ። ቀበሮው እውነተኛ ጥንካሬ አንድ ላይ መስራት እንደሚመጣ የሚያሳይ ፈተና አደረገ። ጥበብ ብዙውን ጊዜ ሰዎችን አንድ ላይ እንዲመጡ መንገድ መፈለግ እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 22)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Elephant",
+      titleAm: "የጥበበኛው ዝሆን",
+      contentEn:
+          "A wise elephant lived in the jungle and was known for his good memory and wisdom. One day, a young monkey came to him, worried about forgetting things. The elephant taught the monkey that true wisdom comes not just from remembering, but from understanding and learning from our experiences. The monkey learned that wisdom means using what we know to make good choices.",
+      contentAm:
+          "አንድ ጥበበኛ ዝሆን በጁንግል ውስጥ ይኖር ነበር እና በጥሩ ትዝታ እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ዝንጀሮ ነገሮችን መርሳት በተጨናነቀ መልኩ መጣ። ዝሆኑ እውነተኛ ጥበብ ከማስታወስ ብቻ ሳይሆን ከመረዳት እና ከልምዶቻችን መማር እንደሚመጣ አስተማረት። ዝንጀሮው ጥበብ የምናውቅትን ነገር ጥሩ ምርጫዎች ለመድረግ መጠቀም እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 20)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Lion",
+      titleAm: "የጥበበኛው አንበሳ",
+      contentEn:
+          "A wise lion was the king of the jungle and was known for his fairness and wisdom. One day, two smaller animals came to him arguing about territory. The lion listened to both sides carefully and found a solution that worked for everyone. They learned that true wisdom means finding solutions that help everyone, not just the strongest.",
+      contentAm:
+          "አንድ ጥበበኛ አንበሳ የጁንግል ንጉሥ ነበር እና በትክክለኛነት እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ ሁለት ትናንሽ እንስሳት በመሬት በተመለከተ በመከራከር መጡ። አንበሳው ሁለቱንም ጎን በጥንቃቄ ሰማ፣ እና ለሁሉም ሰው የሚሰራ መፍትሄ አገኘ። እውነተኛ ጥበብ ለሁሉም ሰው የሚረዳ መፍትሄዎች መፈለግ እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 18)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Bear",
+      titleAm: "የጥበበኛው ድብ",
+      contentEn:
+          "A wise bear lived in the mountains and was known for his strength and wisdom. One day, a young deer came to him, afraid of the dark. The bear taught the deer that true courage comes from facing our fears and that wisdom helps us understand that many things we fear are not as scary as they seem. The deer learned that wisdom means being brave enough to face our fears.",
+      contentAm:
+          "አንድ ጥበበኛ ድብ በተራሮች ውስጥ ይኖር ነበር እና በጥንካሬ እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ቀጥላ ጥላ በተፈራ መልኩ መጣ። ድቡ እውነተኛ ብርታት ከፍርሃታችን መጋፋፍ እንደሚመጣ እና ጥበብ ብዙውን ጊዜ የምንፈራው ነገሮች እንደሚመስሉት እንዳልሆኑ መረዳት ይረዳናል አስተማረት። ቀጥላው ጥበብ ከፍርሃታችን መጋፋፍ በቂ ብርታት እንዳለን ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 15)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Wolf",
+      titleAm: "የጥበበኛው ተኩላ",
+      contentEn:
+          "A wise wolf lived in the forest and was known for his hunting skills and wisdom. One day, a young rabbit came to him, wanting to learn how to hunt. The wolf taught the rabbit that true wisdom comes from understanding our own strengths and limitations, and that we should work together rather than against each other. The rabbit learned that wisdom means knowing when to work together.",
+      contentAm:
+          "አንድ ጥበበኛ ተኩላ በጫካ ውስጥ ይኖር ነበር እና በመራመጥ ክህሎት እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ጥንቸል መራመጥ መማር ፈለገ። ተኩላው እውነተኛ ጥበብ የራሳችንን ጥንካሬ እና ገደብ መረዳት እንደሚመጣ እና እርስ በርስ ተቃውሞ ከመስራት ይልቅ አንድ ላይ መስራት እንዳለብን አስተማረት። ጥንቸሉ ጥበብ መቼ አንድ ላይ መስራት እንዳለብን መረዳት እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Wise Eagle",
+      titleAm: "የጥበበኛው ንስር",
+      contentEn:
+          "A wise eagle lived high in the mountains and was known for his sharp vision and wisdom. One day, a young bird came to him, worried about finding its way. The eagle taught the bird that true wisdom comes from seeing the bigger picture and understanding that sometimes we need to look at things from a different perspective. The bird learned that wisdom means seeing beyond what's right in front of us.",
+      contentAm:
+          "አንድ ጥበበኛ ንስር በተራሮች ውስጥ ከፍ ብሎ ይኖር ነበር። እና በጥርቅ እይታ እና በጥበብ ይታወቅ ነበር። አንድ ቀን፣ አንድ ታናሽ ወፍ መንገዱን መፈለግ በተጨናነቀ መልኩ መጣ። ንስሩ እውነተኛ ጥበብ ትልቅ ስዕል ማየት እና አንዳንድ ጊዜ ነገሮችን ከተለያየ አመለካከት መመልከት እንዳለብን መረዳት እንደሚመጣ አስተማረት። ወፉ ጥበብ በፊታችን ያለውን ነገር በላይ መማረጥ እንደሆነ ተረዳ።",
+      type: StoryType.fairyTale,
+      topic: "Wisdom",
+      dateCreated: DateTime.now().subtract(const Duration(days: 10)),
+      category: StoryCategory.wisdom,
+      hasBeenViewed: false,
+    ));
+
+    // Add funny nature-themed fairy tales
+    _stories.add(Story(
+      titleEn: "The Cloud That Couldn't Rain",
+      titleAm: "ዝናብ ማውረድ ያቃተው ደመና",
+      contentEn:
+          "Once upon a time, there was a young cloud named Fluffy who had a big problem—he couldn't rain! While all the other clouds would drift over the dry lands and release their water, poor Fluffy would puff and strain, but not a single drop would fall. The other clouds teased him, calling him 'Dry Puff' and 'Waterless Wonder.' One day, a tiny bird with bright blue feathers landed on Fluffy. \"Why so gloomy?\" chirped the bird. Fluffy explained his embarrassing problem. \"Hmm,\" said the bird. \"Have you tried laughing?\" \"Laughing?\" Fluffy was confused. \"Yes! When I laugh too hard, sometimes tears come out!\" So Fluffy watched the silly antics of monkeys swinging in trees and children making funny faces. He started to giggle, then chuckle, then laugh so hard that suddenly—SPLASH! The rain began to pour! From then on, whenever Fluffy needed to rain, he would find something funny to watch. The farmers below grew to love the sound of his special 'laughing rain,' which always seemed to make their crops grow taller and more colorful than any other rain. Sometimes our problems don't need serious solutions—they just need a different perspective and a good laugh!",
+      contentAm:
+          "አንድ ጊዜ ፍላፊ የሚባል ትንሽ ደመና ነበር፣ ትልቅ ችግር ነበረው—ዝናብ ማውረድ አይችልም! ሌሎች ደመናዎች ሁሉ በደረቅ መሬቶች ላይ ተንሳፍፈው ውሃቸውን ሲለቅቁ፣ ምስኪኑ ፍላፊ ይጨናነቅና ይወጠርም ነበር፣ ግን አንድም ጠብታ አይወድቅም ነበር። ሌሎቹ ደመናዎች ይሳለቁበት ነበር፣ 'ደረቅ ነፋሽ' እና 'ውሃ አልባ ድንቅ' እያሉ ይጠሩታል። አንድ ቀን፣ አንድ ብሩህ ሰማያዊ ላባዎች ያለው ትንሽ ወፍ በፍላፊ ላይ ተቀመጠ። \"ለምን እንደዚህ ትጨነቃለህ?\" ብሎ ወፍየው ጮኸ። ፍላፊ አሳፋሪ ችግሩን ገለጸለት። \"ኧረ ይሄ ነው፣\" አለ ወፉ። \"መሳቅ ሞክረሃል?\" \"መሳቅ?\" ፍላፊ ግራ ገባው። \"አዎ! በጣም ሳቅ ሲበዛኝ፣ አንዳንድ ጊዜ እንባ ይወጣኛል!\" ስለዚህ ፍላፊ በዛፎች ላይ የሚነጋገዱ ዝንጀሮዎችን አሽሙር እና ልጆች አስቂኝ ፊቶች ሲሠሩ ይመለከት ጀመር። መጀመሪያ ትንሽ ሳቀ፣ ከዚያ አፍጥጦ ሳቀ፣ በመጨረሻም በጣም እስኪሳቅ ድረስ ድንገት—ርጥብ ሆነ! ዝናቡ መውረድ ጀመረ! ከዚያ ጊዜ ጀምሮ፣ ፍላፊ ዝናብ ማውረድ ሲፈልግ፣ የሚያስቅ ነገር ይፈልጋል። ከታች ያሉት ገበሬዎች የእሱን ልዩ 'የሳቅ ዝናብ' ድምፅ ይወዱ ጀመር፣ ሁልጊዜም እሱ ዝናብ ሲያወርድ ሰብሎቻቸው ከሌላ ማንኛውም ዝናብ የበለጠ ረዥምና ቀለም የበዛባቸው ሆነው ያድጋሉ። አንዳንድ ጊዜ ችግሮቻችን ከባድ መፍትሄዎች አያስፈልጓቸውም—የሚያስፈልጋቸው የተለየ አመለካከትና ጥሩ ሳቅ ብቻ ነው!",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 14)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Waterfall That Flowed Upwards",
+      titleAm: "ወደ ላይ የሚፈስ ፏፏቴ",
+      contentEn:
+          "In the heart of a lush forest, there was a most unusual waterfall. While all other waterfalls flowed downward, this peculiar waterfall, named Flipsy, flowed upward! The water would gather at the bottom of a cliff and then, quite bizarrely, rush upward against the rocky wall, splashing and dancing as it climbed rather than fell. Animals came from far and wide to witness this strange phenomenon. Scientists were baffled, tourists took countless photos, and the local mayor even wanted to build a tourist center. But a clever monkey named Miko noticed something odd. \"Wait a minute,\" he said one day, climbing behind the waterfall. \"This isn't magic at all!\" It turned out a family of playful otters had built an elaborate system of bamboo pipes that secretly pumped water up from the river below. When confronted, the chief otter grinned sheepishly. \"We just wanted to make something amazing,\" he admitted. Rather than being angry, the forest creatures were impressed by the otters' ingenuity. They all worked together to create an even more spectacular upside-down waterfall, with colored lights and musical bamboo chimes that played when the water hit them. Sometimes what seems like magic is really just creativity and hard work, and that can be even more impressive than real magic!",
+      contentAm:
+          "በደን ልብ ውስጥ፣ በጣም ያልተለመደ ውሃ ፏፏቴ ነበር። ሌሎች ፏፏቴዎች ሁሉ ወደ ታች እየፈሰሱ እያለ፣ ይህ ልዩ ፏፏቴ፣ ፍሊፕሲ የሚባለው፣ ወደ ላይ ይፈሳል! ውሃው በአንድ ኮረብታ ግርጌ ይሰበሰባል፣ ከዚያም በጣም በሚያስገርም ሁኔታ ድንጋያማው ግድግዳ ላይ ወደ ላይ ይሮጣል፣ እየተፈናጠረና እየዘለለ ወደ ላይ ይወጣል ወደ ታች አይወድቅም። እንስሳት ይህን ያልተለመደ ክስተት ለመመልከት ከሩቅ ይመጡ ነበር። ሳይንቲስቶች ግራ ገብቷቸዋል፣ ጎብኚዎች የማያቋርጥ ፎቶዎች ያነሱበት፣ የአካባቢው ከንቲባም የጎብኚዎች ማእከል ለመገንባት ይፈልግ ነበር። ነገር ግን ሚኮ የሚባል አስተዋይ ዝንጀሮ ያልተለመደ ነገር ተመለከተ። \"ቆይ እስቲ፣\" ብሎ አንድ ቀን ከውሃ ፏፏቴው ኋላ በመውጣት። \"ይህ ጭራሽ ድንቅ ነገር አይደለም!\" በመጨረሻም የተጫዋች ዶሮዎች ቤተሰብ ከታች ካለው ወንዝ ውሃን በምስጢር ወደ ላይ የሚያጠጣ የሾላ ትቦዎች ውስብስብ ሥርዓት እንደገነቡ ታወቀ። ሲጠየቁ፣ ዋናው ዶሮ ከአፍንጫ በታች ፈገግ አለ። \"አስደናቂ ነገር ለመፍጠር ፈልገን ነበር፣\" ሲል ተቀበለ። ከመናደድ ይልቅ፣ የጫካ ፍጥረታት በዶሮዎች ብልሃት ተደንቀዋል። ሁሉም አብረው ይበልጥ ድንቅ የሆነ ወደ ላይ የሚፈስ ፏፏቴ ፈጠሩ፣ ከቀለም መብራቶችና ውሃው ሲመታቸው የሚጫወቱ የሙዚቃ የሾላ ደወሎች ጋር። አንዳንድ ጊዜ ድንቅ መስሎ የሚታየው ነገር በእውነቱ ፈጠራና ጠንክሮ መሥራት ነው፣ ይህም ከእውነተኛ ድንቅ ነገር በላይ አስገራሚ ሊሆን ይችላል!",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 11)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Tree That Traveled",
+      titleAm: "የጓዘው ዛፍ",
+      contentEn:
+          "Once there was a towering oak tree named Oakley who had stood in the same spot for over two hundred years. He had watched generations of animals make homes in his branches and children play in his shade. But Oakley had a secret dream—he wanted to see the world! \"If only I could travel,\" he would sigh to the birds who nested in his branches. \"You have roots, Oakley,\" they would remind him. \"Trees can't travel.\" One stormy night, a powerful gust of wind, stronger than any Oakley had felt before, blew through the forest. Oakley felt his roots loosen in the soggy ground. Instead of being frightened, he was excited! With one final push, he was uprooted—but rather than falling over, something magical happened. His roots curled up like legs, and he found he could walk! For weeks, Oakley traveled through forests and meadows, across streams, and even along a busy road (causing quite a traffic jam and appearing in several viral videos). He saw mountains and lakes and visited a city park where he met other trees who were amazed by his tales. Eventually, Oakley found a beautiful hillside overlooking the ocean—a view he had always dreamed of. There he planted his roots once more, happy to rest after his adventures. To this day, hikers who pass Oakley swear they've seen him lift a root now and then, as if taking a little step. Some dreams are worth waiting centuries for, and sometimes the most unlikely adventures are the most wonderful of all.",
+      contentAm:
+          "አንድ ጊዜ ኦክሊ የሚባል ረጅም የኦክ ዛፍ ነበር ከሁለት መቶ ዓመታት በላይ በተመሳሳይ ቦታ ቆሞ የነበረ። ትውልዶች የእንስሳት በቅርንጫፎቹ ላይ ቤቶችን ሲሰሩና ልጆች በጥላው ሲጫወቱ ይመለከት ነበር። ግን ኦክሊ ምስጢራዊ ህልም ነበረው — ዓለምን ማየት ይፈልግ ነበር! \"ብቻ መጓዝ ብችል ኖሮ፣\" በቅርንጫፎቹ ላይ ጎጆ ለሚሰሩት ወፎች ይናፍቅ ነበር። \"ሥሮች አሉህ፣ ኦክሊ\" ብለው ያስታውሱታል። \"ዛፎች መጓዝ አይችሉም።\" አንድ አውሎንፋሳዊ ምሽት፣ ኦክሊ ከዚህ ቀደም ካሰው በላይ ጠንካራ የሆነ የንፋስ ማዕበል በጫካው ውስጥ አለፈ። ኦክሊ ሥሮቹ በረጠበ መሬት ላይ ሲላሉ ተሰማው። ከመደንገጥ ይልቅ ተደሰተ! በመጨረሻው ግፊት ሥሩ ተመነጠረ — ግን ከመውደቅ ይልቅ አንድ ድንቅ ነገር ተከሰተ። ሥሮቹ እንደ እግሮች ተጠምጠመው፣ መራመድ እንደሚችል አገኘ! ለሳምንታት፣ ኦክሊ በደኖችና በሣር ሜዳዎች፣ በፈሳሾች አቋርጦ፣ እንዲሁም በተጨናነቀ መንገድ ላይ ተጓዘ (የተጨናነቀ የመኪና መጨናነቅ በመፍጠርና በብዙ ቪዲዮዎች በመታየት)። ተራሮችንና ሐይቆችን ተመለከተ እንዲሁም ታሪኮቹን በሚደነቁ ሌሎች ዛፎች የሚገኝ የከተማ ፓርክ ጎበኘ። በመጨረሻም፣ ኦክሊ ውቅያኖስን የሚያይ ውብ ኮረብታ ላይ አገኘ — ሁልጊዜም ይመኘው የነበረ እይታ። እዚያም ከጉዞው በኋላ ደስተኛ ሆኖ ዳግም ሥሮቹን ተከለ። እስከዛሬ ድረስ፣ ኦክሊን የሚያልፉ ተጓዦች እንደ ትንሽ እርምጃ እያነሳ አንድ ሥር ከጊዜ ወደ ጊዜ ሲያነሳ እንዳዩት ይማሉ። አንዳንድ ህልሞች ለዘመናት መጠበቅ ይገባቸዋል፣ አንዳንድ ጊዜ ከሁሉም ያልተጠበቁ ጉዞዎች ከሁሉም ድንቅ ናቸው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 9)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Sun's Holiday",
+      titleAm: "የፀሐይ ዕረፍት",
+      contentEn:
+          "After shining brightly for thousands of years without a single day off, the Sun decided she needed a vacation. \"Just a quick three-day weekend,\" she told the Moon. \"Could you cover for me?\" The Moon agreed but reminded the Sun that he normally only worked nights and wasn't nearly as bright. \"It'll be fine,\" the Sun assured him as she packed her sunglasses (yes, even the Sun needs eye protection sometimes) and sunscreen (ironic, but she burns easily). The first morning without the Sun was chaotic. People overslept because their rooms stayed dark. Plants drooped in confusion. The Moon tried his best, glowing as brightly as he could, but it was still only as bright as twilight. \"I'm not cut out for this day shift,\" he muttered, exhausted after just a few hours. Meanwhile, the Sun was relaxing at a cosmic spa, getting her solar flares massaged and enjoying not having to maintain nuclear fusion for a bit. Back on Earth, things were getting chilly. Scientists held emergency meetings. News anchors reported while wearing parkas indoors. On day two, the stars offered to help, and thousands of them moved closer to Earth to provide more light. It helped a little, but it was still dim and getting colder. By day three, Earth had sent a delegation of birds flying as high as they could with a message: \"PLEASE COME BACK! WE MISS YOU!\" The Sun, touched by how much she was needed and missed (and feeling refreshed after her treatments), cut her vacation short and returned early. As she approached Earth, she heard the cheers of billions of relieved plants, animals, and people. \"Sorry about that!\" she called, beaming extra brightly to warm things up again. Ever since, the Sun has taken shorter breaks—just a few minutes during what we call eclipses. And Earth's inhabitants learned never to take daylight for granted again. Sometimes you don't appreciate what you have until it takes a vacation!",
+      contentAm:
+          "ለሺህ ዓመታት ያህል ያለ አንድም የእረፍት ቀን በድምቀት ከበራች በኋላ፣ ፀሐይ እረፍት እንደሚያስፈልጋት ወሰነች። \"ለሶስት ቀን የሚቆይ የሳምንቱ መጨረሻ ብቻ፣\" ብላ ጨረቃን ነገረችው። \"ለእኔ ልትሸፍንልኝ ትችላለህ?\" ጨረቃም ተስማማ ግን በአብዛኛው ሌሊት ላይ እንደሚሰራና እንደ እሷ ብርሃናማ እንዳልሆነ አስታወሳት። \"ደህና ይሆናል፣\" ብላ ፀሐይ ዓይነ ጠባቂዋን (አዎ፣ ፀሐይም ቢሆን አንዳንድ ጊዜ የዓይን ጥበቃ ያስፈልጋታል) እና የፀሐይ መከላከያ ቅባት (አስቂኝ ቢሆንም፣ በቀላሉ ትቃጠላለች) ስትሸከም አረጋገጠችለት። ያለ ፀሐይ የመጀመሪያው ጠዋት ሁከት ነበር። ሰዎች ክፍላቸው ጨለማ በመሆኑ ከእንቅልፍ አልነቁም ነበር። ተክሎች በግራ መጋባት ደከሙ። ጨረቃው በተቻለው አቅም ሁሉ፣ በብርሃኑ ሲያበራ ሞከረ፣ ግን ገና የጎህ ብርሃን ያህል ብቻ ነበር። \"ለዚህ የቀን ፈረቃ ብቁ አይደለሁም፣\" ብሎ በጥቂት ሰዓታት ብቻ ደክሞት ተንጎመጎመ። በዚህ ጊዜ፣ ፀሐይ በሕዋስ መዝናኛ ቦታ እየተዝናናች፣ የፀሐይ ነበልባሎቿ እንዲታሹላት እያደረገች እና ለጥቂት ጊዜም ቢሆን የኑክሊየር ፍዩዥን ማቆየት ሳያስፈልጋት ደስታዋን እየተደሰተች ነበር። በምድር ላይ፣ ነገሮች እየቀዘቀዙ ነበር። ሳይንቲስቶች የአስቸኳይ ስብሰባዎችን አካሄዱ። የዜና አወራጆች ፓርካዎችን በቤት ውስጥ ለብሰው ዘገቡ። በሁለተኛው ቀን፣ ከዋክብት ለመርዳት ቀረቡ፣ ብዙ ሺህ ከዋክብትም ተጨማሪ ብርሃን ለመስጠት ወደ ምድር ተጠጋጉ። ትንሽ ረዳ፣ ግን አሁንም ጨለማ እና ይበልጥ ቀዝቃዛ እየሆነ ነበር። በሶስተኛው ቀን፣ ምድር የወፎች ልዑክ ልኮ በተቻለ ከፍታ በሙሉ: \"እባክሽ ተመለሺ! እናፈልግሻለን!\" በሚል መልዕክት እጅግ ከፍ ብለው እንዲበሩ አደረገች። ፀሐይም፣ በምን ያህል እንደምትፈለግና እንደተናፈቀች ተነክታ (ከህክምናዎቿም በኋላ ታድሳ)፣ እረፍቷን አሳጥራ ቶሎ ተመለሰች። ወደ ምድር ስትቃረብ፣ ከብዙ ቢሊዮን የሚቆጠሩ የተጽናኑ ተክሎች፣ እንስሳት፣ እና ሰዎች ጭብጨባን ሰማች። \"ስለዚህ ይቅርታ!\" በማለት ጮኸች፣ ነገሮችን ዳግመኛ ለማሞቅ ተጨማሪ ድምቀት እየሰጠች። ከዚያን ጊዜ ጀምሮ፣ ፀሐይ አጭር ዕረፍቶችን ወስዳለች - እኛ የፀሐይ ግርዶሽ የምንላቸው ለጥቂት ደቂቃዎች ብቻ። እናም የምድር ነዋሪዎች ቀኑን በፍጹም እንዳይገምቱ ተማሩ። አንዳንድ ጊዜ ያለህን ነገር አታደንቅም፣ ከእረፍት ለመውሰድ ስሞክር ብቻ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 8)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Waterfall That Flowed Upwards",
+      titleAm: "ወደ ላይ የሚፈስ ፏፏቴ",
+      contentEn:
+          "In the heart of a lush forest, there was a most unusual waterfall. While all other waterfalls flowed downward, this peculiar waterfall, named Flipsy, flowed upward! The water would gather at the bottom of a cliff and then, quite bizarrely, rush upward against the rocky wall, splashing and dancing as it climbed rather than fell. Animals came from far and wide to witness this strange phenomenon. Scientists were baffled, tourists took countless photos, and the local mayor even wanted to build a tourist center. But a clever monkey named Miko noticed something odd. \"Wait a minute,\" he said one day, climbing behind the waterfall. \"This isn't magic at all!\" It turned out a family of playful otters had built an elaborate system of bamboo pipes that secretly pumped water up from the river below. When confronted, the chief otter grinned sheepishly. \"We just wanted to make something amazing,\" he admitted. Rather than being angry, the forest creatures were impressed by the otters' ingenuity. They all worked together to create an even more spectacular upside-down waterfall, with colored lights and musical bamboo chimes that played when the water hit them. Sometimes what seems like magic is really just creativity and hard work, and that can be even more impressive than real magic!",
+      contentAm:
+          "በደን ልብ ውስጥ፣ በጣም ያልተለመደ ውሃ ፏፏቴ ነበር። ሌሎች ፏፏቴዎች ሁሉ ወደ ታች እየፈሰሱ እያለ፣ ይህ ልዩ ፏፏቴ፣ ፍሊፕሲ የሚባለው፣ ወደ ላይ ይፈሳል! ውሃው በአንድ ኮረብታ ግርጌ ይሰበሰባል፣ ከዚያም በጣም በሚያስገርም ሁኔታ ድንጋያማው ግድግዳ ላይ ወደ ላይ ይሮጣል፣ እየተፈናጠረና እየዘለለ ወደ ላይ ይወጣል ወደ ታች አይወድቅም። እንስሳት ይህን ያልተለመደ ክስተት ለመመልከት ከሩቅ ይመጡ ነበር። ሳይንቲስቶች ግራ ገብቷቸዋል፣ ጎብኚዎች የማያቋርጥ ፎቶዎች ያነሱበት፣ የአካባቢው ከንቲባም የጎብኚዎች ማእከል ለመገንባት ይፈልግ ነበር። ነገር ግን ሚኮ የሚባል አስተዋይ ዝንጀሮ ያልተለመደ ነገር ተመለከተ። \"ቆይ እስቲ፣\" ብሎ አንድ ቀን ከውሃ ፏፏቴው ኋላ በመውጣት። \"ይህ ጭራሽ ድንቅ ነገር አይደለም!\" በመጨረሻም የተጫዋች ዶሮዎች ቤተሰብ ከታች ካለው ወንዝ ውሃን በምስጢር ወደ ላይ የሚያጠጣ የሾላ ትቦዎች ውስብስብ ሥርዓት እንደገነቡ ታወቀ። ሲጠየቁ፣ ዋናው ዶሮ ከአፍንጫ በታች ፈገግ አለ። \"አስደናቂ ነገር ለመፍጠር ፈልገን ነበር፣\" ሲል ተቀበለ። ከመናደድ ይልቅ፣ የጫካ ፍጥረታት በዶሮዎች ብልሃት ተደንቀዋል። ሁሉም አብረው ይበልጥ ድንቅ የሆነ ወደ ላይ የሚፈስ ፏፏቴ ፈጠሩ፣ ከቀለም መብራቶችና ውሃው ሲመታቸው የሚጫወቱ የሙዚቃ የሾላ ደወሎች ጋር። አንዳንድ ጊዜ ድንቅ መስሎ የሚታየው ነገር በእውነቱ ፈጠራና ጠንክሮ መሥራት ነው፣ ይህም ከእውነተኛ ድንቅ ነገር በላይ አስገራሚ ሊሆን ይችላል!",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 11)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Tree That Traveled",
+      titleAm: "የጓዘው ዛፍ",
+      contentEn:
+          "Once there was a towering oak tree named Oakley who had stood in the same spot for over two hundred years. He had watched generations of animals make homes in his branches and children play in his shade. But Oakley had a secret dream—he wanted to see the world! \"If only I could travel,\" he would sigh to the birds who nested in his branches. \"You have roots, Oakley,\" they would remind him. \"Trees can't travel.\" One stormy night, a powerful gust of wind, stronger than any Oakley had felt before, blew through the forest. Oakley felt his roots loosen in the soggy ground. Instead of being frightened, he was excited! With one final push, he was uprooted—but rather than falling over, something magical happened. His roots curled up like legs, and he found he could walk! For weeks, Oakley traveled through forests and meadows, across streams, and even along a busy road (causing quite a traffic jam and appearing in several viral videos). He saw mountains and lakes and visited a city park where he met other trees who were amazed by his tales. Eventually, Oakley found a beautiful hillside overlooking the ocean—a view he had always dreamed of. There he planted his roots once more, happy to rest after his adventures. To this day, hikers who pass Oakley swear they've seen him lift a root now and then, as if taking a little step. Some dreams are worth waiting centuries for, and sometimes the most unlikely adventures are the most wonderful of all.",
+      contentAm:
+          "አንድ ጊዜ ኦክሊ የሚባል ረጅም የኦክ ዛፍ ነበር ከሁለት መቶ ዓመታት በላይ በተመሳሳይ ቦታ ቆሞ የነበረ። ትውልዶች የእንስሳት በቅርንጫፎቹ ላይ ቤቶችን ሲሰሩና ልጆች በጥላው ሲጫወቱ ይመለከት ነበር። ግን ኦክሊ ምስጢራዊ ህልም ነበረው — ዓለምን ማየት ይፈልግ ነበር! \"ብቻ መጓዝ ብችል ኖሮ፣\" በቅርንጫፎቹ ላይ ጎጆ ለሚሰሩት ወፎች ይናፍቅ ነበር። \"ሥሮች አሉህ፣ ኦክሊ\" ብለው ያስታውሱታል። \"ዛፎች መጓዝ አይችሉም።\" አንድ አውሎንፋሳዊ ምሽት፣ ኦክሊ ከዚህ ቀደም ካሰው በላይ ጠንካራ የሆነ የንፋስ ማዕበል በጫካው ውስጥ አለፈ። ኦክሊ ሥሮቹ በረጠበ መሬት ላይ ሲላሉ ተሰማው። ከመደንገጥ ይልቅ ተደሰተ! በመጨረሻው ግፊት ሥሩ ተመነጠረ — ግን ከመውደቅ ይልቅ አንድ ድንቅ ነገር ተከሰተ። ሥሮቹ እንደ እግሮች ተጠምጠመው፣ መራመድ እንደሚችል አገኘ! ለሳምንታት፣ ኦክሊ በደኖችና በሣር ሜዳዎች፣ በፈሳሾች አቋርጦ፣ እንዲሁም በተጨናነቀ መንገድ ላይ ተጓዘ (የተጨናነቀ የመኪና መጨናነቅ በመፍጠርና በብዙ ቪዲዮዎች በመታየት)። ተራሮችንና ሐይቆችን ተመለከተ እንዲሁም ታሪኮቹን በሚደነቁ ሌሎች ዛፎች የሚገኝ የከተማ ፓርክ ጎበኘ። በመጨረሻም፣ ኦክሊ ውቅያኖስን የሚያይ ውብ ኮረብታ ላይ አገኘ — ሁልጊዜም ይመኘው የነበረ እይታ። እዚያም ከጉዞው በኋላ ደስተኛ ሆኖ ዳግም ሥሮቹን ተከለ። እስከዛሬ ድረስ፣ ኦክሊን የሚያልፉ ተጓዦች እንደ ትንሽ እርምጃ እያነሳ አንድ ሥር ከጊዜ ወደ ጊዜ ሲያነሳ እንዳዩት ይማሉ። አንዳንድ ህልሞች ለዘመናት መጠበቅ ይገባቸዋል፣ አንዳንድ ጊዜ ከሁሉም ያልተጠበቁ ጉዞዎች ከሁሉም ድንቅ ናቸው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 9)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Sun's Holiday",
+      titleAm: "የፀሐይ ዕረፍት",
+      contentEn:
+          "After shining brightly for thousands of years without a single day off, the Sun decided she needed a vacation. \"Just a quick three-day weekend,\" she told the Moon. \"Could you cover for me?\" The Moon agreed but reminded the Sun that he normally only worked nights and wasn't nearly as bright. \"It'll be fine,\" the Sun assured him as she packed her sunglasses (yes, even the Sun needs eye protection sometimes) and sunscreen (ironic, but she burns easily). The first morning without the Sun was chaotic. People overslept because their rooms stayed dark. Plants drooped in confusion. The Moon tried his best, glowing as brightly as he could, but it was still only as bright as twilight. \"I'm not cut out for this day shift,\" he muttered, exhausted after just a few hours. Meanwhile, the Sun was relaxing at a cosmic spa, getting her solar flares massaged and enjoying not having to maintain nuclear fusion for a bit. Back on Earth, things were getting chilly. Scientists held emergency meetings. News anchors reported while wearing parkas indoors. On day two, the stars offered to help, and thousands of them moved closer to Earth to provide more light. It helped a little, but it was still dim and getting colder. By day three, Earth had sent a delegation of birds flying as high as they could with a message: \"PLEASE COME BACK! WE MISS YOU!\" The Sun, touched by how much she was needed and missed (and feeling refreshed after her treatments), cut her vacation short and returned early. As she approached Earth, she heard the cheers of billions of relieved plants, animals, and people. \"Sorry about that!\" she called, beaming extra brightly to warm things up again. Ever since, the Sun has taken shorter breaks—just a few minutes during what we call eclipses. And Earth's inhabitants learned never to take daylight for granted again. Sometimes you don't appreciate what you have until it takes a vacation!",
+      contentAm:
+          "ለሺህ ዓመታት ያህል ያለ አንድም የእረፍት ቀን በድምቀት ከበራች በኋላ፣ ፀሐይ እረፍት እንደሚያስፈልጋት ወሰነች። \"ለሶስት ቀን የሚቆይ የሳምንቱ መጨረሻ ብቻ፣\" ብላ ጨረቃን ነገረችው። \"ለእኔ ልትሸፍንልኝ ትችላለህ?\" ጨረቃም ተስማማ ግን በአብዛኛው ሌሊት ላይ እንደሚሰራና እንደ እሷ ብርሃናማ እንዳልሆነ አስታወሳት። \"ደህና ይሆናል፣\" ብላ ፀሐይ ዓይነ ጠባቂዋን (አዎ፣ ፀሐይም ቢሆን አንዳንድ ጊዜ የዓይን ጥበቃ ያስፈልጋታል) እና የፀሐይ መከላከያ ቅባት (አስቂኝ ቢሆንም፣ በቀላሉ ትቃጠላለች) ስትሸከም አረጋገጠችለት። ያለ ፀሐይ የመጀመሪያው ጠዋት ሁከት ነበር። ሰዎች ክፍላቸው ጨለማ በመሆኑ ከእንቅልፍ አልነቁም ነበር። ተክሎች በግራ መጋባት ደከሙ። ጨረቃው በተቻለው አቅም ሁሉ፣ በብርሃኑ ሲያበራ ሞከረ፣ ግን ገና የጎህ ብርሃን ያህል ብቻ ነበር። \"ለዚህ የቀን ፈረቃ ብቁ አይደለሁም፣\" ብሎ በጥቂት ሰዓታት ብቻ ደክሞት ተንጎመጎመ። በዚህ ጊዜ፣ ፀሐይ በሕዋስ መዝናኛ ቦታ እየተዝናናች፣ የፀሐይ ነበልባሎቿ እንዲታሹላት እያደረገች እና ለጥቂት ጊዜም ቢሆን የኑክሊየር ፍዩዥን ማቆየት ሳያስፈልጋት ደስታዋን እየተደሰተች ነበር። በምድር ላይ፣ ነገሮች እየቀዘቀዙ ነበር። ሳይንቲስቶች የአስቸኳይ ስብሰባዎችን አካሄዱ። የዜና አወራጆች ፓርካዎችን በቤት ውስጥ ለብሰው ዘገቡ። በሁለተኛው ቀን፣ ከዋክብት ለመርዳት ቀረቡ፣ ብዙ ሺህ ከዋክብትም ተጨማሪ ብርሃን ለመስጠት ወደ ምድር ተጠጋጉ። ትንሽ ረዳ፣ ግን አሁንም ጨለማ እና ይበልጥ ቀዝቃዛ እየሆነ ነበር። በሶስተኛው ቀን፣ ምድር የወፎች ልዑክ ልኮ በተቻለ ከፍታ በሙሉ: \"እባክሽ ተመለሺ! እናፈልግሻለን!\" በሚል መልዕክት እጅግ ከፍ ብለው እንዲበሩ አደረገች። ፀሐይም፣ በምን ያህል እንደምትፈለግና እንደተናፈቀች ተነክታ (ከህክምናዎቿም በኋላ ታድሳ)፣ እረፍቷን አሳጥራ ቶሎ ተመለሰች። ወደ ምድር ስትቃረብ፣ ከብዙ ቢሊዮን የሚቆጠሩ የተጽናኑ ተክሎች፣ እንስሳት፣ እና ሰዎች ጭብጨባን ሰማች። \"ስለዚህ ይቅርታ!\" በማለት ጮኸች፣ ነገሮችን ዳግመኛ ለማሞቅ ተጨማሪ ድምቀት እየሰጠች። ከዚያን ጊዜ ጀምሮ፣ ፀሐይ አጭር ዕረፍቶችን ወስዳለች - እኛ የፀሐይ ግርዶሽ የምንላቸው ለጥቂት ደቂቃዎች ብቻ። እናም የምድር ነዋሪዎች ቀኑን በፍጹም እንዳይገምቱ ተማሩ። አንዳንድ ጊዜ ያለህን ነገር አታደንቅም፣ ከእረፍት ለመውሰድ ስሞክር ብቻ ነው።",
+      type: StoryType.fairyTale,
+      topic: "Nature",
+      dateCreated: DateTime.now().subtract(const Duration(days: 8)),
+      category: StoryCategory.nature,
+      hasBeenViewed: false,
+    ));
+
+    // Add family stories
+    _stories.add(Story(
+      titleEn: "The Magical Family Dinner",
+      titleAm: "ድንቅ የቤተሰብ እራት",
+      contentEn:
+          "Every Friday in the Abebe family home, something magical happened. Grandmother Kidist prepared a feast that brought everyone together from miles around. Her injera was so perfectly spongy that children believed it had been blessed by angels. Her doro wat was so rich and flavorful that neighbors could smell it three houses away. But the true magic wasn't in the food itself—it was in what happened around the table. As family members arrived, all arguments were forgotten. Cousins who had quarreled all week suddenly remembered they were best friends. Uncle Yonas's stories grew more incredible with each telling, and no one minded. Little Tigist always asked to hear how her parents met, even though she knew the story by heart. When Grandmother Kidist rang the small brass bell, everyone hurried to wash their hands. They gathered around the table, where steam rose from the dishes like morning mist over mountains. Before eating, each person shared one good thing that happened that week. Even on the hardest weeks, everyone found something to share. \"In our family,\" Grandmother often said, \"we eat the food, but we feast on our stories and love.\" Years later, when family members moved far away for school or work, they would close their eyes on Friday evenings and swear they could smell Grandmother's doro wat, carrying her love across any distance.",
+      contentAm:
+          "በአበበ ቤተሰብ ቤት ውስጥ በየአርብ ቀን አንድ ድንቅ ነገር ይከሰት ነበር። አያት ቅድስት ከብዙ ሩቅ ቦታ የሚመጣውን ሁሉ የሚያስተሳስር ግብዣ ታዘጋጅ ነበር። እንጀራዋ እንደ ስፍንጥሮሽ ፍጹም የሆነ በመሆኑ ልጆች በመላእክት እንደተባረከ ያምኑ ነበር። የዶሮ ወጧም በጣም 풍부고 ጣእም የሞላበት ስለሆነ ጎረቤቶቿ በሶስት ቤቶች ርቀት ሊሸቱት ይችሉ ነበር። ነገር ግን እውነተኛው ድንቅ በምግቡ ራሱ ውስጥ አልነበረም-በገበታው ዙሪያ የሚከሰት ነገር ነበር። የቤተሰብ አባላት ሲመጡ፣ ሁሉም ክርክሮች ይረሱ ነበር። ሳምንቱን በሙሉ የተጣሉ የአጎት ልጆች ድንገት ታላላቅ ጓደኞች መሆናቸውን አስታወሱ ። የአጎት ዮናስ ታሪኮች በየምዕራፉ ይበልጥ አስደናቂ እየሆኑ ሄዱ፣ እና ማንም አላስጨነቀውም። ትንሿ ትግስት ታሪኩን በልቧ ታውቀው ቢሆንም፣ ሁልጊዜም ወላጆቿ እንዴት እንደተገናኙ እንድትሰማ ትጠይቅ ነበር። አያት ቅድስት ትንሿን የናስ ደወል ስትደውል፣ ሁሉም እጃቸውን ለመታጠብ ይቻኮላሉ። እንደ ተራሮች ላይ የጠዋት ጭጋግ፣ ጠል ከምግቦቹ ላይ እየወጣ ገበታውን ከበው ይሰበሰባሉ። ከመመገባቸው በፊት፣ እያንዳንዱ ሰው ባለፈው ሳምንት የተከሰተውን አንድ መልካም ነገር ያካፍላል። በጣም ከባድ በሆኑ ሳምንታት ላይም እንኳ፣ ሁሉም የሚካፈሉትን አንድ ነገር ያገኙ ነበር። \"በቤተሰባችን ውስጥ፣\" አያት ቅድስት ብዙ ጊዜ ትል ነበር፣ \"ምግቡን እንበላለን፣ ግን ታሪኮቻችንንና ፍቅራችንን እናከብራለን።\" ከዓመታት በኋላ፣ የቤተሰብ አባላት ለትምህርት ወይም ለሥራ በጣም ሩቅ ቦታ ሲሄዱ፣ በአርብ ምሽቶቻቸውን ይዘጉና የአያት ቅድስትን የዶሮ ወጥ ማሽተት፣ በማንኛውም ርቀት ፍቅሯን ይጓጓዝ ዘንድ መቻሉን ይማሉ ነበር።",
+      type: StoryType.fairyTale,
+      topic: "Family",
+      dateCreated: DateTime.now().subtract(const Duration(days: 12)),
+      category: StoryCategory.family,
+      hasBeenViewed: false,
+    ));
+
+    _stories.add(Story(
+      titleEn: "The Family Quilt",
+      titleAm: "የቤተሰብ ብርድ ልብስ",
+      contentEn:
+          "For as long as anyone could remember, the Tesfa family had passed down a special tradition. Whenever a child turned ten years old, they would add their own square to the family quilt. This quilt was enormous—nearly covering an entire wall of their home—and contained pieces of fabric dating back six generations. Every square told a story. Great-great-grandmother Alemitu had used a piece of her wedding dress. Grandfather Debebe had added fabric from his first school uniform. Aunt Makeda had sewn in a piece of the curtain from the theater where she'd performed her first dance recital. When Ayana's tenth birthday approached, she worried constantly. \"I don't have anything special enough,\" she confided in her mother. For weeks, she searched for the perfect fabric, but nothing seemed right. The day before her birthday, a terrible storm hit, forcing her family to huddle together in the living room all night. To calm everyone's fears, they shared stories about each square on the family quilt, laughing and sometimes crying as they remembered. By morning, the storm had passed, and something appeared on their front lawn—a magnificent rainbow, brighter than any they'd seen before. \"That's it!\" Ayana exclaimed. She took the white shirt she had worn during the storm and used her paint set to create a rainbow pattern on a square of it. When she added it to the quilt, everyone agreed it was perfect. \"The storm brought fear,\" she explained, \"but it also brought our family together, just like this quilt does.\" Now, when visitors came to their home, the rainbow square was always part of the story—a reminder that together, they could weather any storm.",
+      contentAm:
+          "ማንም ሊያስታውሰው ከሚችለው ጊዜ ጀምሮ፣ የተስፋ ቤተሰብ ልዩ ልማድ ትውልድን አሻግረው ነበር። አንድ ልጅ አሥር ዓመት ሲሞላው፣ የራሱን ካሬ በቤተሰቡ ብርድ ልብስ ላይ ይጨምራል። ይህ ቤተሰባዊ ብርድ ልብስ ግዙፍ ነበር-የመኖሪያ ቤታቸውን ሙሉ ግድግዳ ሊሸፍን የሚችል-እና ከስድስት ትውልዶች ጀምሮ የሚቆጠሩ የጨርቅ ቁራጮች ይይዛል። እያንዳንዱ ካሬ ታሪክ ይጠራል። ታላቋ አያት አለሚቱ ከሠርግ ቀሚሷ ቁራጭ ተጠቅማለች። አያት ደበበ ከመጀመሪያው የትምህርት ቤት ዩኒፎርም ጨርቅ አክሏል። አክስት መከዳ ከመጀመሪያው የዳንስ ትዕይንቷ ከታየበት ቲያትር መጋረጃ ቁራጭ ሰፍታለች። አያና አስረኛ የልደት በዓሏ ሲቃረብ ሁልጊዜ ታስብ ነበር። \"በቂ የሆነ ልዩ ነገር የለኝም፣\" ብላ በእናቷ አመነች። ለሳምንታት የሚገባውን ጨርቅ ፈለገች፣ ግን ምንም ነገር ትክክል አልመሰለም። ከልደት በዓሏ በፊት ባለው ቀን፣ አስከፊ ማዕበል መጣ፣ ቤተሰቧም ሙሉ ሌሊት በመኖሪያ ቤታቸው ውስጥ አንድ ላይ እንዲሰበሰቡ አስገድዷቸዋል። የሁሉንም ፍርሃት ለማረጋጋት፣ ስለ ቤተሰብ ብርድልብሱ ላይ ስላለው እያንዳንዱ ካሬ ታሪኮችን ተካፈሉ፣ እያስታወሱ ሲሳቁና አንዳንድ ጊዜ ሲያለቅሱ። ጠዋት ላይ፣ ማዕበሉ አልፏል፣ በፊት አጥሩ ላይ አንድ ነገር ታየ-ድንቅ ቀስተደመና፣ ከዚህ በፊት ከማዩት በላይ ደምቆ። \"ይሄ ነው!\" አያና በጥንካሬ ተናገረች። በማዕበሉ ውስጥ የለበሰችውን ነጭ ሸሚዝ ወስዳ የነበራትን የቀለም ስብስብ ተጠቅማ የቀስተደመና ንድፍ በካሬ ላይ ፈጠረች። ወደ ብርድልብሱ ሲያከልው፣ ሁሉም ፍጹም መሆኑን ተስማሙ። \"ማዕበሉ ፍርሃትን አመጣ፣\" ብላ ገለጸች፣ \"ግን ቤተሰባችንን አንድ ላይ አበረው፣ ልክ እንደዚህ ብርድልብስ።\" አሁን፣ ጎብኚዎች ወደ ቤታቸው ሲመጡ፣ የቀስተደመናው ካሬ ሁልጊዜም የታሪኩ አካል ነበር-አብረው ሆነው ማንኛውንም ማዕበል ሊታገሱ እንደሚችሉ ማስታወሻ።",
+      type: StoryType.fairyTale,
+      topic: "Family",
+      dateCreated: DateTime.now().subtract(const Duration(days: 14)),
+      category: StoryCategory.family,
+      hasBeenViewed: false,
+    ));
+
+    // Helper methods that need to be defined before they're used
+    bool _containsAny(String text, List<String> keywords) {
+      for (final keyword in keywords) {
+        if (text.contains(keyword)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    StoryCategory _getCategoryFromTopic(String topic, StoryType type) {
+      // Convert topic to lowercase for case-insensitive matching
+      final lowercaseTopic = topic.toLowerCase();
+
+      // For stories
+      if (type == StoryType.fairyTale) {
+        if (_containsAny(lowercaseTopic,
+            ['animal', 'lion', 'elephant', 'monkey', 'bird', 'pet'])) {
+          return StoryCategory.animals;
+        } else if (_containsAny(lowercaseTopic, [
+          'nature',
+          'forest',
+          'mountain',
+          'river',
+          'ocean',
+          'plant',
+          'flower',
+          'tree'
+        ])) {
+          return StoryCategory.nature;
+        } else if (_containsAny(lowercaseTopic, [
+          'culture',
+          'tradition',
+          'heritage',
+          'festival',
+          'ceremony',
+          'ethiopia',
+          'amharic'
+        ])) {
+          return StoryCategory.culture;
+        } else if (_containsAny(lowercaseTopic, [
+          'history',
+          'past',
+          'ancient',
+          'king',
+          'queen',
+          'war',
+          'revolution'
+        ])) {
+          return StoryCategory.history;
+        } else if (_containsAny(lowercaseTopic, [
+          'family',
+          'mother',
+          'father',
+          'sister',
+          'brother',
+          'parents',
+          'home'
+        ])) {
+          return StoryCategory.family;
+        } else if (_containsAny(lowercaseTopic, [
+          'friend',
+          'friendship',
+          'together',
+          'companion',
+          'relationship'
+        ])) {
+          return StoryCategory.friendship;
+        }
+      }
+      // For riddles
+      else if (type == StoryType.riddle) {
+        if (_containsAny(lowercaseTopic, [
+          'wisdom',
+          'smart',
+          'clever',
+          'think',
+          'brain',
+          'puzzle',
+          'challenge'
+        ])) {
+          return StoryCategory.wisdom;
+        }
+      }
+
+      // Default category
+      return StoryCategory.userCreated;
+    }
+
+    List<Story> getStoriesByCategory(StoryCategory category) {
+      return _stories.where((story) => story.category == category).toList()
+        ..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+    }
+
+    List<Story> getFeaturedStories() {
+      return _stories.where((story) => story.isFeatured).toList()
+        ..sort((a, b) => b.dateCreated.compareTo(a.dateCreated));
+    }
+
+    // Re-initialize the Gemini API with a simplified approach
+    void _reinitializeGemini() {
+      try {
+        final apiKey = dotenv.env['GEMINI_API_KEY'];
+        if (apiKey == null || apiKey.isEmpty) {
+          debugPrint('API key not found');
+          return;
+        }
+
+        _model = GenerativeModel(
+          model: 'gemini-pro',
+          apiKey: apiKey,
+        );
+        debugPrint('Re-initialized Gemini API with gemini-pro model');
+      } catch (e) {
+        debugPrint('Failed to re-initialize Gemini API: $e');
+      }
+    }
+
+    Story? _parseResponse({
+      required StoryType type,
+      required String topic,
+      required String response,
+    }) {
+      try {
+        final lines = response.split('\n');
+        String titleEn = '';
+        String titleAm = '';
+        String contentEn = '';
+        String contentAm = '';
+        String answerEn = '';
+        String answerAm = '';
+
+        bool isReadingContentEn = false;
+        bool isReadingContentAm = false;
+
+        for (final line in lines) {
+          if (line.startsWith('ENGLISH_TITLE:')) {
+            titleEn = line.substring('ENGLISH_TITLE:'.length).trim();
+          } else if (line.startsWith('AMHARIC_TITLE:')) {
+            titleAm = line.substring('AMHARIC_TITLE:'.length).trim();
+          } else if (line.startsWith('ENGLISH_CONTENT:')) {
+            isReadingContentEn = true;
+            contentEn = line.substring('ENGLISH_CONTENT:'.length).trim();
+          } else if (line.startsWith('AMHARIC_CONTENT:')) {
+            isReadingContentEn = false;
+            isReadingContentAm = true;
+            contentAm = line.substring('AMHARIC_CONTENT:'.length).trim();
+          } else if (line.startsWith('ENGLISH_ANSWER:')) {
+            isReadingContentAm = false;
+            answerEn = line.substring('ENGLISH_ANSWER:'.length).trim();
+          } else if (line.startsWith('AMHARIC_ANSWER:')) {
+            answerAm = line.substring('AMHARIC_ANSWER:'.length).trim();
+          } else if (isReadingContentEn) {
+            contentEn += '\n$line';
+          } else if (isReadingContentAm) {
+            contentAm += '\n$line';
+          }
+        }
+
+        // Clean up the content to remove any extra whitespace
+        titleEn = titleEn.trim();
+        titleAm = titleAm.trim();
+        contentEn = contentEn.trim();
+        contentAm = contentAm.trim();
+        answerEn = answerEn.trim();
+        answerAm = answerAm.trim();
+
+        // Make sure we got the required fields
+        if (titleEn.isEmpty ||
+            titleAm.isEmpty ||
+            contentEn.isEmpty ||
+            contentAm.isEmpty) {
+          return null;
+        }
+
+        // For riddles, make sure we have answers
+        if (type == StoryType.riddle &&
+            (answerEn.isEmpty || answerAm.isEmpty)) {
+          return null;
+        }
+
+        return Story(
+          titleEn: titleEn,
+          titleAm: titleAm,
+          contentEn: contentEn,
+          contentAm: contentAm,
+          type: type,
+          topic: topic,
+          answerEn: type == StoryType.riddle ? answerEn : null,
+          answerAm: type == StoryType.riddle ? answerAm : null,
+          dateCreated: DateTime.now(),
+          category: _getCategoryFromTopic(topic, type),
+          hasBeenViewed: false,
+        );
+      } catch (e) {
+        return null;
+      }
+    }
+
+    void removeStory(Story story) {
+      _stories.remove(story);
+      notifyListeners();
+    }
+
+    Future<Story?> generateStory({
+      required StoryType type,
+      required String topic,
+      required AgeGroup ageGroup,
+      required bool isAmharicInput,
+    }) async {
+      if (_dataSavingMode) {
+        _error = 'Story generation is disabled in data saving mode';
+        notifyListeners();
+        return null;
+      }
+
+      if (_model == null) {
+        await _initializeGemini();
+        if (_model == null) {
+          _error = 'Failed to initialize AI model. Please restart the app.';
+          notifyListeners();
+          return null;
+        }
+      }
+
+      _isLoading = true;
+      notifyListeners();
+
+      try {
+        // Determine the language for prompt generation
+        final bool isAmharic = isAmharicInput;
+        final String ageGroupText = ageGroup == AgeGroup.children
+            ? 'children (5-12 years old)'
+            : 'all ages';
+        final String contentTypeText =
+            type == StoryType.fairyTale ? 'fairy tale' : 'riddle';
+
+        // Create the prompt
+        final String prompt = '''
+Create a bilingual ${contentTypeText} in both English and Amharic about "${topic}".
+${isAmharic ? 'The topic was provided in Amharic, ensure you understand it correctly.' : ''}
+The ${contentTypeText} should be appropriate for ${ageGroupText}.
+${type == StoryType.fairyTale ? 'Make it entertaining and include a moral lesson.' : 'Make it clever and not too easy to solve.'}
+
+Respond in the following JSON format only:
+{
+  "titleEn": "English title of the ${contentTypeText}",
+  "titleAm": "Amharic title of the ${contentTypeText}",
+  "contentEn": "English content of the ${contentTypeText}",
+  "contentAm": "Amharic content of the ${contentTypeText}",
+  ${type == StoryType.riddle ? '"answerEn": "English answer to the riddle",\n  "answerAm": "Amharic answer to the riddle",' : ''}
+  "topic": "Topic of the ${contentTypeText}"
+}
+
+Ensure the Amharic text is high quality and natural.
+''';
+
+        final content = await _model!.generateContent([Content.text(prompt)]);
+        final response = content.text?.trim() ?? '';
+
+        // Parse the JSON response
+        try {
+          // Extract JSON object from the response
+          final jsonString =
+              response.replaceAll('```json', '').replaceAll('```', '').trim();
+
+          // Parse JSON
+          final Map<String, dynamic> jsonData = Map<String, dynamic>.from(
+            Uri.dataFromString('{"source": $jsonString}').data!.source,
+          );
+
+          final StoryCategory category =
+              _getCategoryFromTopic(jsonData['topic'] ?? topic, type);
+
+          // Create the story object
+          final Story story = Story(
+            titleEn: jsonData['titleEn'] ?? 'Untitled',
+            titleAm: jsonData['titleAm'] ?? 'ያልተሰየመ',
+            contentEn: jsonData['contentEn'] ?? 'No content generated',
+            contentAm: jsonData['contentAm'] ?? 'ይዘት አልተፈጠረም',
+            type: type,
+            topic: jsonData['topic'] ?? topic,
+            answerEn: type == StoryType.riddle ? jsonData['answerEn'] : null,
+            answerAm: type == StoryType.riddle ? jsonData['answerAm'] : null,
+            dateCreated: DateTime.now(),
+            category: category,
+          );
+
+          // Add to stories list
+          _stories.add(story);
+          notifyListeners();
+
+          return story;
+        } catch (e) {
+          debugPrint('Error parsing AI response: $e');
+          _error = 'Failed to generate story. Please try again.';
+          notifyListeners();
+          return null;
+        }
+      } catch (e) {
+        debugPrint('AI generation error: $e');
+        _error =
+            'Failed to connect to AI service. Please check your connection and try again.';
+        notifyListeners();
+        return null;
+      } finally {
+        _isLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+}
