@@ -1084,9 +1084,7 @@ class StoryProvider extends ChangeNotifier {
       );
 
       // If parsing fails, use a fallback story
-      if (story == null) {
-        story = _createFallbackStory(type, topic);
-      }
+      story ??= _createFallbackStory(type, topic);
 
       _stories.add(story);
       _error = '';
@@ -1179,7 +1177,7 @@ You are a master storyteller specializing in bilingual ${isStory ? 'FairyTales' 
     // Add specific instructions based on type
     if (isStory) {
       basePrompt += '''
-Create a captivating FairyTale about "${topic}" with the following structure:
+Create a captivating FairyTale about "$topic" with the following structure:
 1. English title (creative and engaging)
 2. Amharic title (culturally appropriate translation)
 3. English content (300-400 words, engaging narrative with a beginning, middle, and end)
@@ -1195,7 +1193,7 @@ Important guidelines for the Amharic text:
 ''';
     } else {
       basePrompt += '''
-Create an intriguing riddle about "${topic}" with the following structure:
+Create an intriguing riddle about "$topic" with the following structure:
 1. English title (creative and engaging)
 2. Amharic title (culturally appropriate translation)
 3. English riddle (clever, concise, and challenging)

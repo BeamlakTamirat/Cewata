@@ -1,4 +1,4 @@
-# Amharic & English FairyTales & Riddles
+# CEWATA  ->  Amharic & English FairyTales & Riddles
 
 A beautiful bilingual storytelling and riddles app powered by Google's Gemini AI. This app generates engaging fairy tales and riddles in both English and Amharic.
 
@@ -58,11 +58,8 @@ A beautiful bilingual storytelling and riddles app powered by Google's Gemini AI
    - Switch between English and Amharic using the tabs
    - For riddles, tap "Reveal Answer" to see the solution
 
-3. **Listen to Content**:
-   - When viewing a FairyTale or Riddle, tap the speaker icon
-   - The app will read the content aloud in the selected language
 
-4. **Customize Settings**:
+3. **Customize Settings**:
    - Access the settings page from the home screen
    - Change theme preferences
    - Update your Gemini API key if needed
@@ -74,13 +71,7 @@ A beautiful bilingual storytelling and riddles app powered by Google's Gemini AI
 - Provider pattern for state management
 - Material 3 design principles
 - Animation effects for enhanced user experience
-- Text-to-speech capabilities for both languages
 
-## Credits
-
-- Google Generative AI (Gemini) for content generation
-- Flutter and Dart teams for the framework
-- Various Flutter packages used in this project
 
 ## License
 

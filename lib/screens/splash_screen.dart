@@ -216,9 +216,9 @@ class _SplashScreenState extends State<SplashScreen>
                               child: Container(
                                 width: 120,
                                 height: 120,
-                                decoration: BoxDecoration(
+                                decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
-                                  gradient: const LinearGradient(
+                                  gradient: LinearGradient(
                                     colors: [
                                       Color(0xFF9575CD),
                                       Color(0xFF512DA8)
@@ -311,7 +311,7 @@ class _SplashScreenState extends State<SplashScreen>
                             height: 40,
                             child: CircularProgressIndicator(
                               valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                                  const AlwaysStoppedAnimation<Color>(Colors.white),
                               strokeWidth: 3,
                               backgroundColor: Colors.white.withOpacity(0.2),
                             ),

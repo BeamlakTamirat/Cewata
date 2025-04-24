@@ -506,9 +506,9 @@ class _HomeScreenState extends State<HomeScreen>
                   top: 0,
                   right: 0,
                   child: Container(
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: Colors.red,
-                      borderRadius: const BorderRadius.only(
+                      borderRadius: BorderRadius.only(
                         topRight: Radius.circular(16),
                         bottomLeft: Radius.circular(16),
                       ),

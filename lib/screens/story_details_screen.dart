@@ -142,14 +142,14 @@ ${widget.story.contentAm}
                       Icons.language,
                       color: _isEnglishSide
                           ? theme.colorScheme.primary
-                          : theme.colorScheme.onBackground.withOpacity(0.5),
+                          : theme.colorScheme.onSurface.withOpacity(0.5),
                     ),
                     label: Text(
                       'English',
                       style: TextStyle(
                         color: _isEnglishSide
                             ? theme.colorScheme.primary
-                            : theme.colorScheme.onBackground.withOpacity(0.5),
+                            : theme.colorScheme.onSurface.withOpacity(0.5),
                         fontWeight: _isEnglishSide
                             ? FontWeight.bold
                             : FontWeight.normal,
@@ -170,14 +170,14 @@ ${widget.story.contentAm}
                       Icons.language,
                       color: !_isEnglishSide
                           ? theme.colorScheme.primary
-                          : theme.colorScheme.onBackground.withOpacity(0.5),
+                          : theme.colorScheme.onSurface.withOpacity(0.5),
                     ),
                     label: Text(
                       'አማርኛ',
                       style: TextStyle(
                         color: !_isEnglishSide
                             ? theme.colorScheme.primary
-                            : theme.colorScheme.onBackground.withOpacity(0.5),
+                            : theme.colorScheme.onSurface.withOpacity(0.5),
                         fontWeight: !_isEnglishSide
                             ? FontWeight.bold
                             : FontWeight.normal,

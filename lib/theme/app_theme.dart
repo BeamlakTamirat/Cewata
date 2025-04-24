@@ -39,12 +39,10 @@ class AppTheme {
       secondary: AppColors.secondary,
       tertiary: AppColors.tertiary,
       surface: AppColors.surface,
-      background: AppColors.background,
       error: Color(0xFFB00020),
       onPrimary: Colors.white,
       onSecondary: Colors.white,
       onSurface: AppColors.text,
-      onBackground: AppColors.text,
       onError: Colors.white,
     ),
     scaffoldBackgroundColor: AppColors.background,
@@ -148,9 +146,9 @@ class AppTheme {
       space: 1,
     ),
     checkboxTheme: CheckboxThemeData(
-      fillColor: MaterialStateProperty.resolveWith<Color>(
-        (Set<MaterialState> states) {
-          if (states.contains(MaterialState.disabled)) {
+      fillColor: WidgetStateProperty.resolveWith<Color>(
+        (Set<WidgetState> states) {
+          if (states.contains(WidgetState.disabled)) {
             return AppColors.primary.withOpacity(0.3);
           }
           return AppColors.primary;
@@ -184,12 +182,10 @@ class AppTheme {
       secondary: AppColors.secondaryDark,
       tertiary: AppColors.tertiaryDark,
       surface: AppColors.surfaceDark,
-      background: AppColors.backgroundDark,
       error: Color(0xFFCF6679),
       onPrimary: Colors.black,
       onSecondary: Colors.black,
       onSurface: AppColors.textDark,
-      onBackground: AppColors.textDark,
       onError: Colors.black,
     ),
     scaffoldBackgroundColor: AppColors.backgroundDark,
@@ -292,9 +288,9 @@ class AppTheme {
       space: 1,
     ),
     checkboxTheme: CheckboxThemeData(
-      fillColor: MaterialStateProperty.resolveWith<Color>(
-        (Set<MaterialState> states) {
-          if (states.contains(MaterialState.disabled)) {
+      fillColor: WidgetStateProperty.resolveWith<Color>(
+        (Set<WidgetState> states) {
+          if (states.contains(WidgetState.disabled)) {
             return AppColors.primaryDark.withOpacity(0.3);
           }
           return AppColors.primaryDark;

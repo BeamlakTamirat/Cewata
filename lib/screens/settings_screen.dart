@@ -138,6 +138,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
+
+
+
+
+
           // Data Saving Mode section
           _buildSectionHeader('Data Usage'),
           const SizedBox(height: 8),

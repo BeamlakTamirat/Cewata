@@ -24,7 +24,7 @@ class _StoryGeneratorScreenState extends State<StoryGeneratorScreen> {
   final TextEditingController _amharicTopicController = TextEditingController();
   bool _isAmharicInput = false;
 
-  bool _isGenerating = false;
+  final bool _isGenerating = false;
   String _errorMessage = '';
 
   @override
